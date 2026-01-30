@@ -1,50 +1,140 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+==================
+Version change: 0.0.0 → 1.0.0 (initial ratification)
+Modified principles: N/A (initial creation)
+Added sections:
+  - Core Principles (5 principles)
+  - Performance Standards
+  - Development Workflow
+  - Governance
+Removed sections: N/A
+Templates requiring updates:
+  - .specify/templates/plan-template.md: ✅ no changes needed (Constitution Check section is generic)
+  - .specify/templates/spec-template.md: ✅ no changes needed (requirements structure is compatible)
+  - .specify/templates/tasks-template.md: ✅ no changes needed (phase structure is compatible)
+Follow-up TODOs: None
+-->
+
+# Byoman Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Terminal-First Design
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+All user interactions MUST be optimized for shell terminal workflows:
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+- Output MUST be readable in standard 80-column terminals by default
+- Commands MUST support both interactive and scriptable (non-interactive) modes
+- All output MUST be parseable: human-readable by default, JSON via `--json` flag
+- Exit codes MUST follow POSIX conventions: 0 for success, non-zero for errors
+- Color output MUST respect `NO_COLOR` environment variable and `--no-color` flag
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+**Rationale**: Terminal users expect predictable, scriptable behavior. Byoman integrates into
+existing shell workflows and must not break automation pipelines or accessibility tools.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### II. Byobu Session Integrity
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Session management operations MUST preserve user data and state:
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+- MUST never destroy or corrupt active byobu sessions without explicit user confirmation
+- Session state changes MUST be atomic: complete fully or roll back
+- MUST gracefully handle concurrent access to the same sessions
+- Session metadata MUST be stored in well-defined, recoverable locations
+- MUST detect and warn about orphaned or corrupted sessions
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+**Rationale**: Users trust byoman with their terminal sessions containing potentially hours of
+unsaved work. Data integrity is non-negotiable.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### III. Code Quality Standards
+
+All code contributions MUST meet these quality gates:
+
+- Functions MUST be <50 lines; files MUST be <500 lines (excluding tests)
+- Public APIs MUST have docstrings with usage examples
+- All user-facing strings MUST be defined in a single location for consistency
+- Error messages MUST include: what failed, why, and suggested remediation
+- No silent failures: all errors MUST be logged or reported
+
+**Rationale**: A small, focused codebase is easier to maintain and debug. Clear error messages
+reduce user frustration and support burden.
+
+### IV. Performance Requirements
+
+Terminal interactions MUST feel instantaneous:
+
+- Command startup MUST complete in <100ms for simple operations
+- Session listing MUST complete in <500ms for up to 100 sessions
+- Long-running operations MUST show progress indicators
+- Memory usage MUST stay under 50MB for typical operations
+- MUST avoid unnecessary I/O: cache session state where safe
+
+**Rationale**: Terminal users expect immediate feedback. Slow CLI tools break flow and encourage
+users to switch to alternatives.
+
+### V. Graceful Degradation
+
+The system MUST handle adverse conditions without catastrophic failure:
+
+- MUST operate correctly when byobu is not installed (with clear error message)
+- MUST handle missing configuration files by using sensible defaults
+- Network operations (if any) MUST have timeouts and offline fallbacks
+- MUST log detailed diagnostics to `~/.byoman/logs/` for troubleshooting
+- Partial failures SHOULD complete what's possible and report what failed
+
+**Rationale**: Real-world environments are messy. Robust error handling builds user trust and
+simplifies debugging.
+
+## Performance Standards
+
+### Benchmarks
+
+| Operation | Target | Maximum |
+|-----------|--------|---------|
+| Command startup (no-op) | <50ms | 100ms |
+| List all sessions | <200ms | 500ms |
+| Create new session | <300ms | 1000ms |
+| Attach to session | <100ms | 300ms |
+| Configuration load | <20ms | 50ms |
+
+### Monitoring
+
+- Performance regression tests MUST run in CI for critical paths
+- Any operation exceeding targets MUST be flagged for optimization review
+- Memory profiling SHOULD be performed quarterly or after major changes
+
+## Development Workflow
+
+### Code Review Requirements
+
+- All changes MUST be reviewed before merge
+- Reviews MUST verify compliance with Core Principles
+- Performance-sensitive changes MUST include benchmark results
+
+### Testing Discipline
+
+- Unit tests MUST cover all public functions
+- Integration tests MUST cover all CLI commands
+- Tests MUST NOT depend on actual byobu sessions (use mocks/fixtures)
+
+### Release Process
+
+- Versions follow MAJOR.MINOR.PATCH semantic versioning
+- Breaking changes to CLI interface require MAJOR version bump
+- All releases MUST include changelog entries
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other development practices for byoman.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Amendment Process**:
+1. Propose changes via pull request to this document
+2. Changes require explicit approval from project maintainer
+3. Breaking changes to principles require migration plan
+
+**Compliance**:
+- All pull requests MUST pass Constitution Check in plan review
+- Violations require documented justification in Complexity Tracking section
+- Repeated violations trigger process review
+
+**Version**: 1.0.0 | **Ratified**: 2026-01-30 | **Last Amended**: 2026-01-30
