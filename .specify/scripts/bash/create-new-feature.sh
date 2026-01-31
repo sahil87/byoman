@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+#
+# create-new-feature.sh - Create a new spec directory with date-based naming
+#
+# Naming scheme: {YYMMDD}-{4-char-random}-{slug}
+#   - YYMMDD: Date of creation (local timezone)
+#   - 4-char-random: Alphanumeric string for uniqueness
+#   - slug: Cleaned description (lowercase, hyphen-separated)
+#
+# Example: 260131-a7k2-user-authentication
 
 set -e
 
@@ -6,9 +15,46 @@ set -e
 SCRIPT_DIR="$(CDPATH="" cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
+# Generate 4-character random alphanumeric string
+# Uses /dev/urandom for cross-platform compatibility (macOS, Linux, BSD)
+generate_random_string() {
+    head -c 100 /dev/urandom | LC_ALL=C tr -dc 'a-z0-9' | head -c 4
+}
+
+# Generate date prefix in YYMMDD format
+# Uses local timezone to match user expectations
+generate_date_prefix() {
+    date +%y%m%d
+}
+
+# Generate unique prefix with collision detection
+# Format: {YYMMDD}-{4-char-random}
+# Retries up to 3 times if collision detected (extremely unlikely)
+generate_unique_prefix() {
+    local specs_dir="$1"
+    local slug="$2"
+    local max_attempts=3
+    local attempt=1
+
+    while [ $attempt -le $max_attempts ]; do
+        local date_prefix=$(generate_date_prefix)
+        local random_str=$(generate_random_string)
+        local prefix="${date_prefix}-${random_str}"
+
+        # Check for collision with existing spec using same prefix
+        if ! ls "$specs_dir"/"${prefix}"-* >/dev/null 2>&1; then
+            echo "$prefix"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    echo "ERROR: Failed to generate unique prefix after $max_attempts attempts" >&2
+    return 1
+}
+
 JSON_MODE=false
 SHORT_NAME=""
-SPEC_NUMBER=""
 ARGS=()
 i=1
 while [ $i -le $# ]; do
@@ -31,30 +77,22 @@ while [ $i -le $# ]; do
             SHORT_NAME="$next_arg"
             ;;
         --number)
-            if [ $((i + 1)) -gt $# ]; then
-                echo 'Error: --number requires a value' >&2
-                exit 1
-            fi
-            i=$((i + 1))
-            next_arg="${!i}"
-            if [[ "$next_arg" == --* ]]; then
-                echo 'Error: --number requires a value' >&2
-                exit 1
-            fi
-            SPEC_NUMBER="$next_arg"
+            echo "ERROR: --number flag removed. Specs now use date-based naming (YYMMDD-XXXX-slug)." >&2
+            exit 1
             ;;
         --help|-h)
-            echo "Usage: $0 [--json] [--short-name <name>] [--number N] <feature_description>"
+            echo "Usage: $0 [--json] [--short-name <name>] <feature_description>"
             echo ""
             echo "Options:"
             echo "  --json              Output in JSON format"
             echo "  --short-name <name> Provide a custom short name (2-4 words) for the spec"
-            echo "  --number N          Specify spec number manually (overrides auto-detection)"
             echo "  --help, -h          Show this help message"
             echo ""
+            echo "Spec names use format: {YYMMDD}-{4-char-random}-{slug}"
+            echo ""
             echo "Examples:"
-            echo "  $0 'Add user authentication system' --short-name 'user-auth'"
-            echo "  $0 'Implement OAuth2 integration for API' --number 5"
+            echo "  $0 'Add user authentication system'"
+            echo "  $0 'Implement OAuth2 integration' --short-name 'oauth-login'"
             exit 0
             ;;
         *)
@@ -66,29 +104,9 @@ done
 
 FEATURE_DESCRIPTION="${ARGS[*]}"
 if [ -z "$FEATURE_DESCRIPTION" ]; then
-    echo "Usage: $0 [--json] [--short-name <name>] [--number N] <feature_description>" >&2
+    echo "Usage: $0 [--json] [--short-name <name>] <feature_description>" >&2
     exit 1
 fi
-
-# Get highest number from specs directory only
-get_highest_from_specs() {
-    local specs_dir="$1"
-    local highest=0
-
-    if [ -d "$specs_dir" ]; then
-        for dir in "$specs_dir"/*; do
-            [ -d "$dir" ] || continue
-            dirname=$(basename "$dir")
-            number=$(echo "$dirname" | grep -o '^[0-9]\+' || echo "0")
-            number=$((10#$number))
-            if [ "$number" -gt "$highest" ]; then
-                highest=$number
-            fi
-        done
-    fi
-
-    echo "$highest"
-}
 
 # Function to clean and format a spec name
 clean_spec_name() {
@@ -146,31 +164,32 @@ cd "$REPO_ROOT"
 SPECS_DIR="$REPO_ROOT/specs"
 mkdir -p "$SPECS_DIR"
 
-# Generate spec name
+# Generate spec slug from description or short name
 if [ -n "$SHORT_NAME" ]; then
     SPEC_SUFFIX=$(clean_spec_name "$SHORT_NAME")
 else
     SPEC_SUFFIX=$(generate_spec_name "$FEATURE_DESCRIPTION")
 fi
 
-# Determine spec number from specs/ directory only
-if [ -z "$SPEC_NUMBER" ]; then
-    HIGHEST=$(get_highest_from_specs "$SPECS_DIR")
-    SPEC_NUMBER=$((HIGHEST + 1))
+# Generate unique date-based prefix (YYMMDD-XXXX format)
+SPEC_PREFIX=$(generate_unique_prefix "$SPECS_DIR" "$SPEC_SUFFIX")
+if [ $? -ne 0 ]; then
+    exit 1
 fi
 
-# Format spec number with leading zeros
-FEATURE_NUM=$(printf "%03d" "$((10#$SPEC_NUMBER))")
-SPEC_NAME="${FEATURE_NUM}-${SPEC_SUFFIX}"
+# Construct full spec name: {YYMMDD}-{4-char-random}-{slug}
+SPEC_NAME="${SPEC_PREFIX}-${SPEC_SUFFIX}"
 
 # Truncate if too long (keep reasonable length for directory names)
+# Prefix is 12 chars (YYMMDD-XXXX-), so preserve that
 MAX_LENGTH=100
+PREFIX_LENGTH=12
 if [ ${#SPEC_NAME} -gt $MAX_LENGTH ]; then
-    MAX_SUFFIX_LENGTH=$((MAX_LENGTH - 4))
+    MAX_SUFFIX_LENGTH=$((MAX_LENGTH - PREFIX_LENGTH))
     TRUNCATED_SUFFIX=$(echo "$SPEC_SUFFIX" | cut -c1-$MAX_SUFFIX_LENGTH | sed 's/-$//')
 
     ORIGINAL_SPEC_NAME="$SPEC_NAME"
-    SPEC_NAME="${FEATURE_NUM}-${TRUNCATED_SUFFIX}"
+    SPEC_NAME="${SPEC_PREFIX}-${TRUNCATED_SUFFIX}"
 
     >&2 echo "[specify] Warning: Spec name exceeded $MAX_LENGTH chars"
     >&2 echo "[specify] Original: $ORIGINAL_SPEC_NAME (${#ORIGINAL_SPEC_NAME} chars)"
@@ -189,10 +208,9 @@ if [ -f "$TEMPLATE" ]; then cp "$TEMPLATE" "$SPEC_FILE"; else touch "$SPEC_FILE"
 set_current_spec "$SPEC_NAME"
 
 if $JSON_MODE; then
-    printf '{"SPEC_NAME":"%s","SPEC_FILE":"%s","FEATURE_NUM":"%s"}\n' "$SPEC_NAME" "$SPEC_FILE" "$FEATURE_NUM"
+    printf '{"SPEC_NAME":"%s","SPEC_FILE":"%s"}\n' "$SPEC_NAME" "$SPEC_FILE"
 else
     echo "SPEC_NAME: $SPEC_NAME"
     echo "SPEC_FILE: $SPEC_FILE"
-    echo "FEATURE_NUM: $FEATURE_NUM"
     echo "Current spec set to: $SPEC_NAME"
 fi
