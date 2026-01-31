@@ -7,7 +7,7 @@
 #
 # MAIN FUNCTIONS:
 # 1. Environment Validation
-#    - Verifies git repository structure and branch information
+#    - Verifies current spec is set
 #    - Checks for required plan.md files and templates
 #    - Validates file permissions and accessibility
 #
@@ -121,27 +121,21 @@ trap cleanup EXIT INT TERM
 #==============================================================================
 
 validate_environment() {
-    # Check if we have a current branch/feature (git or non-git)
-    if [[ -z "$CURRENT_BRANCH" ]]; then
-        log_error "Unable to determine current feature"
-        if [[ "$HAS_GIT" == "true" ]]; then
-            log_info "Make sure you're on a feature branch"
-        else
-            log_info "Set SPECIFY_FEATURE environment variable or create a feature first"
-        fi
+    # Check if we have a current spec set
+    if [[ -z "$CURRENT_SPEC" ]]; then
+        log_error "No current spec set"
+        log_info "Run /speckit.switch to select a spec, or create a new feature first"
         exit 1
     fi
-    
+
     # Check if plan.md exists
     if [[ ! -f "$NEW_PLAN" ]]; then
         log_error "No plan.md found at $NEW_PLAN"
-        log_info "Make sure you're working on a feature with a corresponding spec directory"
-        if [[ "$HAS_GIT" != "true" ]]; then
-            log_info "Use: export SPECIFY_FEATURE=your-feature-name or create a new feature first"
-        fi
+        log_info "Make sure you're working on a spec with a plan.md file"
+        log_info "Run /speckit.plan to create a plan"
         exit 1
     fi
-    
+
     # Check if template exists (needed for new files)
     if [[ ! -f "$TEMPLATE_FILE" ]]; then
         log_warning "Template file not found at $TEMPLATE_FILE"
@@ -304,7 +298,7 @@ create_new_agent_file() {
     # Escape special characters for sed by using a different delimiter or escaping
     local escaped_lang=$(printf '%s\n' "$NEW_LANG" | sed 's/[\[\.*^$()+{}|]/\\&/g')
     local escaped_framework=$(printf '%s\n' "$NEW_FRAMEWORK" | sed 's/[\[\.*^$()+{}|]/\\&/g')
-    local escaped_branch=$(printf '%s\n' "$CURRENT_BRANCH" | sed 's/[\[\.*^$()+{}|]/\\&/g')
+    local escaped_branch=$(printf '%s\n' "$CURRENT_SPEC" | sed 's/[\[\.*^$()+{}|]/\\&/g')
     
     # Build technology stack and recent change strings conditionally
     local tech_stack
@@ -380,18 +374,18 @@ update_existing_agent_file() {
     
     # Prepare new technology entries
     if [[ -n "$tech_stack" ]] && ! grep -q "$tech_stack" "$target_file"; then
-        new_tech_entries+=("- $tech_stack ($CURRENT_BRANCH)")
+        new_tech_entries+=("- $tech_stack ($CURRENT_SPEC)")
     fi
     
     if [[ -n "$NEW_DB" ]] && [[ "$NEW_DB" != "N/A" ]] && [[ "$NEW_DB" != "NEEDS CLARIFICATION" ]] && ! grep -q "$NEW_DB" "$target_file"; then
-        new_tech_entries+=("- $NEW_DB ($CURRENT_BRANCH)")
+        new_tech_entries+=("- $NEW_DB ($CURRENT_SPEC)")
     fi
     
     # Prepare new change entry
     if [[ -n "$tech_stack" ]]; then
-        new_change_entry="- $CURRENT_BRANCH: Added $tech_stack"
+        new_change_entry="- $CURRENT_SPEC: Added $tech_stack"
     elif [[ -n "$NEW_DB" ]] && [[ "$NEW_DB" != "N/A" ]] && [[ "$NEW_DB" != "NEEDS CLARIFICATION" ]]; then
-        new_change_entry="- $CURRENT_BRANCH: Added $NEW_DB"
+        new_change_entry="- $CURRENT_SPEC: Added $NEW_DB"
     fi
     
     # Check if sections exist in the file
@@ -755,7 +749,7 @@ main() {
     # Validate environment before proceeding
     validate_environment
     
-    log_info "=== Updating agent context files for feature $CURRENT_BRANCH ==="
+    log_info "=== Updating agent context files for feature $CURRENT_SPEC ==="
     
     # Parse the plan file to extract project information
     if ! parse_plan_data "$NEW_PLAN"; then

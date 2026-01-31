@@ -1,3 +1,6 @@
+# Speckit local state
+.specify/current
+
 # Logs
 logs
 *.log
