@@ -42,15 +42,8 @@ REPO_ROOT=$(get_repo_root)
 SPECS_DIR="$REPO_ROOT/specs"
 CURRENT=$(get_current_spec)
 
-# Collect all specs
-specs=()
-if [[ -d "$SPECS_DIR" ]]; then
-    for dir in "$SPECS_DIR"/*; do
-        if [[ -d "$dir" ]]; then
-            specs+=("$(basename "$dir")")
-        fi
-    done
-fi
+# Collect all specs using shared function
+mapfile -t specs < <(list_available_specs)
 
 # Output results
 if $JSON_MODE; then

@@ -108,11 +108,7 @@ if [ -z "$FEATURE_DESCRIPTION" ]; then
     exit 1
 fi
 
-# Function to clean and format a spec name
-clean_spec_name() {
-    local name="$1"
-    echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-//' | sed 's/-$//'
-}
+# clean_spec_name() is now in common.sh
 
 # Function to generate spec name with stop word filtering
 generate_spec_name() {

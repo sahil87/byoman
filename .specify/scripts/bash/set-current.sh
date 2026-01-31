@@ -2,11 +2,13 @@
 
 # Set the current spec
 #
-# Usage: ./set-current.sh <spec-name-or-number>
+# Usage: ./set-current.sh <spec-identifier>
 #
 # ARGUMENTS:
-#   spec-name-or-number    Either the full spec name (e.g., "001-my-feature")
-#                          or just the number (e.g., "1" or "001")
+#   spec-identifier    Can be:
+#                      - Full spec name (e.g., "260131-a7k2-user-auth")
+#                      - List index (e.g., "1" for first spec, "2" for second)
+#                      - Partial match (e.g., "user-auth" matches "260131-a7k2-user-auth")
 #
 # OPTIONS:
 #   --json    Output in JSON format
@@ -23,11 +25,13 @@ for arg in "$@"; do
             JSON_MODE=true
             ;;
         --help|-h)
-            echo "Usage: $0 [--json] <spec-name-or-number>"
+            echo "Usage: $0 [--json] <spec-identifier>"
             echo ""
             echo "Arguments:"
-            echo "  spec-name-or-number    Full spec name (e.g., '001-my-feature')"
-            echo "                         or number (e.g., '1' or '001')"
+            echo "  spec-identifier    Can be:"
+            echo "                     - Full spec name (e.g., '260131-a7k2-user-auth')"
+            echo "                     - List index (e.g., '1' for first, '2' for second)"
+            echo "                     - Partial match (e.g., 'user-auth')"
             echo ""
             echo "Options:"
             echo "  --json    Output results in JSON format"
@@ -60,31 +64,47 @@ SPECS_DIR="$REPO_ROOT/specs"
 # Find the spec
 FOUND_SPEC=""
 
+# Collect all specs into an array
+mapfile -t all_specs < <(list_available_specs)
+
 # First, try exact match
 if [[ -d "$SPECS_DIR/$SPEC_ARG" ]]; then
     FOUND_SPEC="$SPEC_ARG"
-else
-    # Try matching by number prefix
-    # Normalize the number (remove leading zeros, then re-pad)
-    if [[ "$SPEC_ARG" =~ ^[0-9]+$ ]]; then
-        PADDED_NUM=$(printf "%03d" "$((10#$SPEC_ARG))")
+# Try matching by list index (1, 2, 3, etc.)
+elif [[ "$SPEC_ARG" =~ ^[0-9]+$ ]]; then
+    index=$((10#$SPEC_ARG - 1))  # Convert to 0-based index
+    if [[ $index -ge 0 ]] && [[ $index -lt ${#all_specs[@]} ]]; then
+        FOUND_SPEC="${all_specs[$index]}"
+    fi
+fi
 
-        for dir in "$SPECS_DIR"/"$PADDED_NUM"-*; do
-            if [[ -d "$dir" ]]; then
-                FOUND_SPEC="$(basename "$dir")"
-                break
-            fi
+# If still not found, try partial/substring match
+if [[ -z "$FOUND_SPEC" ]]; then
+    matches=()
+    for spec in "${all_specs[@]}"; do
+        if [[ "$spec" == *"$SPEC_ARG"* ]]; then
+            matches+=("$spec")
+        fi
+    done
+
+    if [[ ${#matches[@]} -eq 1 ]]; then
+        FOUND_SPEC="${matches[0]}"
+    elif [[ ${#matches[@]} -gt 1 ]]; then
+        echo "ERROR: Ambiguous spec '$SPEC_ARG' matches multiple specs:" >&2
+        for match in "${matches[@]}"; do
+            echo "  $match" >&2
         done
+        exit 1
     fi
 fi
 
 if [[ -z "$FOUND_SPEC" ]]; then
     echo "ERROR: Spec not found: $SPEC_ARG" >&2
     echo "Available specs:" >&2
-    for dir in "$SPECS_DIR"/*; do
-        if [[ -d "$dir" ]]; then
-            echo "  $(basename "$dir")" >&2
-        fi
+    i=1
+    for spec in "${all_specs[@]}"; do
+        echo "  $i. $spec" >&2
+        ((i++))
     done
     exit 1
 fi

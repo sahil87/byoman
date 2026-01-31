@@ -98,3 +98,16 @@ EOF
 # Helper functions for checking files/directories
 check_file() { [[ -f "$1" ]] && echo "  ✓ $2" || echo "  ✗ $2"; }
 check_dir() { [[ -d "$1" && -n $(ls -A "$1" 2>/dev/null) ]] && echo "  ✓ $2" || echo "  ✗ $2"; }
+
+# Logging functions for consistent output across scripts
+log_info() { echo "INFO: $1"; }
+log_success() { echo "✓ $1"; }
+log_error() { echo "ERROR: $1" >&2; }
+log_warning() { echo "WARNING: $1" >&2; }
+
+# Clean and format a string for use as a spec name slug
+# Converts to lowercase, replaces non-alphanumeric with hyphens, removes duplicate/leading/trailing hyphens
+clean_spec_name() {
+    local name="$1"
+    echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-//' | sed 's/-$//'
+}
