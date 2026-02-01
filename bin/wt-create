@@ -1,0 +1,677 @@
+#!/usr/bin/env bash
+#
+# wt-create - Git worktree creation with memorable random names
+#
+# Usage: wt-create [BRANCH]
+#        wt-create help
+#
+# Creates git worktrees as siblings to the main repository in <repo>-worktrees/
+
+set -euo pipefail
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+# Exit codes per contracts/cli-interface.md
+readonly EXIT_SUCCESS=0
+readonly EXIT_GENERAL_ERROR=1
+# shellcheck disable=SC2034 # Reserved for future arg validation per CLI contract
+readonly EXIT_INVALID_ARGS=2
+readonly EXIT_GIT_ERROR=3
+readonly EXIT_RETRY_EXHAUSTED=4
+
+# Default retry count for name collisions
+readonly DEFAULT_RETRIES=10
+WT_CREATE_RETRIES="${WT_CREATE_RETRIES:-$DEFAULT_RETRIES}"
+
+# NO_COLOR support (https://no-color.org/)
+# This script does not use colors, so NO_COLOR is effectively always respected
+
+# City names for random worktree naming (~100 cities)
+CITIES=(
+    "tokyo" "london" "paris" "berlin" "madrid" "rome" "vienna" "prague"
+    "lisbon" "dublin" "oslo" "stockholm" "helsinki" "warsaw" "budapest"
+    "athens" "cairo" "lagos" "nairobi" "capetown" "mumbai" "delhi"
+    "bangalore" "chennai" "kolkata" "shanghai" "beijing" "hongkong" "seoul"
+    "taipei" "manila" "jakarta" "singapore" "bangkok" "hanoi" "sydney"
+    "melbourne" "perth" "auckland" "wellington" "vancouver" "toronto"
+    "montreal" "newyork" "boston" "chicago" "seattle" "portland" "denver"
+    "austin" "dallas" "houston" "miami" "atlanta" "phoenix" "sandiego"
+    "sanfran" "losangeles" "mexicocity" "bogota" "lima" "santiago"
+    "buenosaires" "riodejaneiro" "saopaulo" "brasilia" "amsterdam"
+    "brussels" "zurich" "geneva" "munich" "frankfurt" "cologne"
+    "hamburg" "barcelona" "valencia" "milan" "naples" "florence"
+    "venice" "turin" "lyon" "marseille" "nice" "bordeaux" "toulouse"
+    "krakow" "gdansk" "poznan" "bratislava" "belgrade" "zagreb"
+    "ljubljana" "sarajevo" "skopje" "tirana" "bucharest" "sofia"
+    "kyiv" "minsk" "tallinn" "riga" "vilnius" "reykjavik"
+)
+
+# ============================================================================
+# Error Handling (Constitution III compliant)
+# ============================================================================
+
+# Print error message in what/why/fix format and exit
+# Usage: error <what> <why> [fix]
+error() {
+    local what="$1"
+    local why="$2"
+    local fix="${3:-}"
+
+    echo "Error: $what" >&2
+    echo "  Why: $why" >&2
+    if [[ -n "$fix" ]]; then
+        echo "  Fix: $fix" >&2
+    fi
+    exit "$EXIT_GENERAL_ERROR"
+}
+
+# Print error and exit with specific code
+# Usage: error_with_code <code> <what> <why> [fix]
+error_with_code() {
+    local code="$1"
+    local what="$2"
+    local why="$3"
+    local fix="${4:-}"
+
+    echo "Error: $what" >&2
+    echo "  Why: $why" >&2
+    if [[ -n "$fix" ]]; then
+        echo "  Fix: $fix" >&2
+    fi
+    exit "$code"
+}
+
+# ============================================================================
+# Repository Context Detection
+# ============================================================================
+
+# Get repository root, name, and default branch
+# Sets: REPO_ROOT, REPO_NAME, DEFAULT_BRANCH, WORKTREES_DIR
+get_repo_context() {
+    # Get repository root
+    REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+        error_with_code "$EXIT_GENERAL_ERROR" \
+            "Not a git repository" \
+            "wt-create must be run from within a git repository" \
+            "Navigate to a git repository and try again"
+    }
+
+    # Extract repository name from path
+    REPO_NAME=$(basename "$REPO_ROOT")
+
+    # Compute worktrees directory (sibling to repository)
+    WORKTREES_DIR="$(dirname "$REPO_ROOT")/${REPO_NAME}-worktrees"
+}
+
+# Validate we're in a git repository
+validate_git_repo() {
+    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+        error_with_code "$EXIT_GENERAL_ERROR" \
+            "Not a git repository" \
+            "wt-create requires a git repository to create worktrees" \
+            "Initialize a repository with 'git init' or navigate to an existing one"
+    fi
+}
+
+# ============================================================================
+# Core Git Operations
+# ============================================================================
+
+# Get the worktrees directory path (sibling to repo)
+# Returns: path string via stdout
+get_worktrees_dir() {
+    echo "$WORKTREES_DIR"
+}
+
+# Ensure worktrees directory exists, create if missing
+ensure_worktrees_dir() {
+    if [[ ! -d "$WORKTREES_DIR" ]]; then
+        mkdir -p "$WORKTREES_DIR" || {
+            error_with_code "$EXIT_GENERAL_ERROR" \
+                "Cannot create worktrees directory" \
+                "Failed to create directory at $WORKTREES_DIR" \
+                "Check permissions on $(dirname "$WORKTREES_DIR")"
+        }
+    fi
+}
+
+# Get the default branch (main or master)
+# Uses: origin/HEAD → main → master fallback per research.md
+get_default_branch() {
+    local default_branch
+
+    # Try origin/HEAD first (set by git clone)
+    default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+
+    # Fallback to checking main/master existence
+    if [[ -z "$default_branch" ]]; then
+        if git show-ref --verify --quiet refs/heads/main 2>/dev/null; then
+            default_branch="main"
+        elif git show-ref --verify --quiet refs/heads/master 2>/dev/null; then
+            default_branch="master"
+        else
+            # Last resort: use whatever HEAD points to
+            default_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || default_branch="main"
+        fi
+    fi
+
+    echo "$default_branch"
+}
+
+# Check if branch exists locally
+# Args: $1 = branch name
+# Returns: 0 if exists, 1 if not
+branch_exists_locally() {
+    local branch="$1"
+    git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null
+}
+
+# Check if branch exists on remote (origin)
+# Args: $1 = branch name
+# Returns: 0 if exists, 1 if not
+branch_exists_remotely() {
+    local branch="$1"
+    git ls-remote --heads origin "$branch" 2>/dev/null | grep -q "$branch"
+}
+
+# Create a new worktree
+# Args: $1 = worktree path, $2 = branch name, $3 = "new" if creating new branch
+# Returns: 0 on success, non-zero on failure
+create_worktree() {
+    local wt_path="$1"
+    local branch="$2"
+    local mode="${3:-existing}"
+
+    if [[ "$mode" == "new" ]]; then
+        # Create new branch from default branch
+        local default_branch
+        default_branch=$(get_default_branch)
+        git worktree add -b "$branch" "$wt_path" "$default_branch" 2>/dev/null || {
+            error_with_code "$EXIT_GIT_ERROR" \
+                "Failed to create worktree" \
+                "git worktree add failed for branch '$branch' at '$wt_path'" \
+                "Check if the branch already exists or if there are permission issues"
+        }
+    else
+        # Use existing branch
+        git worktree add "$wt_path" "$branch" 2>/dev/null || {
+            error_with_code "$EXIT_GIT_ERROR" \
+                "Failed to create worktree" \
+                "git worktree add failed for branch '$branch' at '$wt_path'" \
+                "The branch may already be checked out in another worktree"
+        }
+    fi
+}
+
+# ============================================================================
+# Random Name Generation (User Story 1)
+# ============================================================================
+
+# Generate a random city name from the CITIES array
+generate_random_name() {
+    local index=$((RANDOM % ${#CITIES[@]}))
+    echo "${CITIES[$index]}"
+}
+
+# Check if worktree name would collide with existing worktree
+# Args: $1 = proposed name
+# Returns: 0 if collision (name exists), 1 if name is available
+check_name_collision() {
+    local name="$1"
+    local wt_path="$WORKTREES_DIR/$name"
+
+    # Check if directory exists
+    [[ -d "$wt_path" ]]
+}
+
+# Generate a unique random name with retry logic
+# Returns: unique name via stdout, or exits with EXIT_RETRY_EXHAUSTED
+generate_unique_name() {
+    local attempt=0
+    local name
+
+    while ((attempt < WT_CREATE_RETRIES)); do
+        name=$(generate_random_name)
+        if ! check_name_collision "$name"; then
+            echo "$name"
+            return 0
+        fi
+        ((attempt++))
+    done
+
+    error_with_code "$EXIT_RETRY_EXHAUSTED" \
+        "Could not find unique worktree name" \
+        "All $WT_CREATE_RETRIES random name attempts collided with existing worktrees" \
+        "Remove some worktrees from $WORKTREES_DIR or increase WT_CREATE_RETRIES"
+}
+
+# Print success message per contracts/cli-interface.md
+# Args: $1 = worktree name, $2 = worktree path, $3 = branch name
+print_success() {
+    local name="$1"
+    local path="$2"
+    local branch="$3"
+
+    echo "Created worktree: $name"
+    echo "Path: $path"
+    echo "Branch: $branch"
+}
+
+# Create an exploratory worktree with random name
+# This is the no-args flow: generate random name, create wt/<name> branch
+create_exploratory_worktree() {
+    # Ensure worktrees directory exists
+    ensure_worktrees_dir
+
+    # Generate unique random name
+    local name
+    name=$(generate_unique_name)
+
+    # Compute paths
+    local wt_path="$WORKTREES_DIR/$name"
+    local branch="wt/$name"
+
+    # Create the worktree with new branch
+    create_worktree "$wt_path" "$branch" "new"
+
+    # Print success message
+    print_success "$name" "$wt_path" "$branch"
+
+    # Return the path for menu handling (will be added in Phase 5)
+    echo ""
+    WT_PATH="$wt_path"
+}
+
+# ============================================================================
+# Branch Argument Handling (User Story 2)
+# ============================================================================
+
+# Derive worktree name from branch name
+# Extracts the last segment after any slashes (feature/login → login)
+# Args: $1 = branch name
+# Returns: clean worktree name via stdout
+derive_worktree_name() {
+    local branch="$1"
+    # Get the last segment after any slashes
+    local name="${branch##*/}"
+    # Replace any remaining problematic characters with dashes
+    name="${name//[^a-zA-Z0-9_-]/-}"
+    echo "$name"
+}
+
+# Fetch a remote branch and set up tracking
+# Args: $1 = branch name
+fetch_remote_branch() {
+    local branch="$1"
+    git fetch origin "$branch:$branch" 2>/dev/null || {
+        error_with_code "$EXIT_GIT_ERROR" \
+            "Failed to fetch remote branch '$branch'" \
+            "git fetch origin $branch failed" \
+            "Verify the branch exists on origin with 'git ls-remote origin $branch'"
+    }
+}
+
+# Create worktree for a specified branch
+# Handles: local exists → use it; remote exists → fetch & track; neither → create new
+# Args: $1 = branch name
+# Sets: WT_PATH to the created worktree path
+create_branch_worktree() {
+    local branch="$1"
+
+    # Ensure worktrees directory exists
+    ensure_worktrees_dir
+
+    # Derive worktree name from branch
+    local name
+    name=$(derive_worktree_name "$branch")
+
+    # Check for name collision and handle it
+    if check_name_collision "$name"; then
+        error_with_code "$EXIT_GENERAL_ERROR" \
+            "Worktree '$name' already exists" \
+            "A worktree with this name already exists at $WORKTREES_DIR/$name" \
+            "Remove the existing worktree or use a different branch name"
+    fi
+
+    # Compute worktree path
+    local wt_path="$WORKTREES_DIR/$name"
+
+    # Determine branch handling mode
+    if branch_exists_locally "$branch"; then
+        # Local branch exists - use it
+        create_worktree "$wt_path" "$branch" "existing"
+    elif branch_exists_remotely "$branch"; then
+        # Remote branch exists - fetch and track
+        fetch_remote_branch "$branch"
+        create_worktree "$wt_path" "$branch" "existing"
+    else
+        # Branch doesn't exist - create new from default branch
+        create_worktree "$wt_path" "$branch" "new"
+    fi
+
+    # Print success message
+    print_success "$name" "$wt_path" "$branch"
+
+    # Store path for menu handling
+    echo ""
+    WT_PATH="$wt_path"
+}
+
+# ============================================================================
+# Application Detection and Menu (User Story 3)
+# ============================================================================
+
+# Global array to store available apps (name:open_cmd pairs)
+declare -a AVAILABLE_APPS=()
+
+# Detect operating system
+# Returns: "macos" or "linux" via stdout
+detect_os() {
+    case "$(uname -s)" in
+        Darwin) echo "macos" ;;
+        Linux)  echo "linux" ;;
+        *)      echo "unknown" ;;
+    esac
+}
+
+# Check if an application is available using tiered detection
+# Args: $1 = cli command, $2 = bundle_id (macOS), $3 = desktop file (Linux)
+# Returns: 0 if available, 1 if not
+app_available() {
+    local cli="${1:-}"
+    local bundle_id="${2:-}"
+    local desktop_file="${3:-}"
+    local os
+    os=$(detect_os)
+
+    # Tier 1: Check CLI command
+    if [[ -n "$cli" ]] && command -v "$cli" &>/dev/null; then
+        return 0
+    fi
+
+    # Tier 2: OS-specific detection
+    if [[ "$os" == "macos" && -n "$bundle_id" ]]; then
+        # macOS: Use mdfind to check bundle identifier
+        if mdfind "kMDItemCFBundleIdentifier == '$bundle_id'" 2>/dev/null | grep -q .; then
+            return 0
+        fi
+    elif [[ "$os" == "linux" && -n "$desktop_file" ]]; then
+        # Linux: Check .desktop files
+        if [[ -f "/usr/share/applications/$desktop_file" ]] || \
+           [[ -f "$HOME/.local/share/applications/$desktop_file" ]]; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Build list of available applications
+# Populates: AVAILABLE_APPS array with "name:open_cmd" entries
+build_available_apps() {
+    local os
+    os=$(detect_os)
+    AVAILABLE_APPS=()
+
+    # VSCode - cross-platform with CLI
+    if app_available "code" "com.microsoft.VSCode" "code.desktop"; then
+        AVAILABLE_APPS+=("VSCode:code")
+    fi
+
+    # Cursor - cross-platform with CLI
+    if app_available "cursor" "com.todesktop.230313mzl4w4u92" "cursor.desktop"; then
+        AVAILABLE_APPS+=("Cursor:cursor")
+    fi
+
+    # Ghostty - different open methods per OS
+    if [[ "$os" == "macos" ]]; then
+        if app_available "ghostty" "com.mitchellh.ghostty" ""; then
+            AVAILABLE_APPS+=("Ghostty:ghostty_macos")
+        fi
+    else
+        if app_available "ghostty" "" "com.mitchellh.ghostty.desktop"; then
+            AVAILABLE_APPS+=("Ghostty:ghostty_linux")
+        fi
+    fi
+
+    # macOS-only terminals
+    if [[ "$os" == "macos" ]]; then
+        if app_available "" "com.googlecode.iterm2" ""; then
+            AVAILABLE_APPS+=("iTerm2:iterm")
+        fi
+        if app_available "" "com.apple.Terminal" ""; then
+            AVAILABLE_APPS+=("Terminal.app:terminal_app")
+        fi
+    fi
+
+    # Linux-only terminals
+    if [[ "$os" == "linux" ]]; then
+        if app_available "gnome-terminal" "" "org.gnome.Terminal.desktop"; then
+            AVAILABLE_APPS+=("GNOME Terminal:gnome_terminal")
+        fi
+        if app_available "konsole" "" "org.kde.konsole.desktop"; then
+            AVAILABLE_APPS+=("Konsole:konsole")
+        fi
+    fi
+
+    # File managers
+    if [[ "$os" == "macos" ]]; then
+        # Finder is always available on macOS
+        AVAILABLE_APPS+=("Finder:finder")
+    else
+        if app_available "nautilus" "" "org.gnome.Nautilus.desktop"; then
+            AVAILABLE_APPS+=("Nautilus:nautilus")
+        fi
+        if app_available "dolphin" "" "org.kde.dolphin.desktop"; then
+            AVAILABLE_APPS+=("Dolphin:dolphin")
+        fi
+    fi
+
+    # Copy path option - check for clipboard tools
+    if [[ "$os" == "macos" ]] && command -v pbcopy &>/dev/null; then
+        AVAILABLE_APPS+=("Copy path:copy_macos")
+    elif [[ "$os" == "linux" ]] && command -v xclip &>/dev/null; then
+        AVAILABLE_APPS+=("Copy path:copy_linux")
+    fi
+}
+
+# Display the menu of available applications
+show_menu() {
+    echo "Open in:"
+    local i=1
+    for app in "${AVAILABLE_APPS[@]}"; do
+        local name="${app%%:*}"
+        echo "  $i) $name"
+        ((i++))
+    done
+    echo "  0) Exit"
+    printf "Choice: "
+}
+
+# Copy path to clipboard
+# Args: $1 = path to copy
+copy_to_clipboard() {
+    local path="$1"
+    local os
+    os=$(detect_os)
+
+    if [[ "$os" == "macos" ]]; then
+        echo -n "$path" | pbcopy
+        echo "Path copied to clipboard"
+    elif command -v xclip &>/dev/null; then
+        echo -n "$path" | xclip -selection clipboard
+        echo "Path copied to clipboard"
+    else
+        echo "Clipboard not available"
+    fi
+}
+
+# Open worktree in specified application
+# Args: $1 = open command identifier, $2 = worktree path
+open_in_app() {
+    local cmd="$1"
+    local path="$2"
+
+    case "$cmd" in
+        code)
+            code "$path"
+            ;;
+        cursor)
+            cursor "$path"
+            ;;
+        ghostty_macos)
+            open -a Ghostty "$path"
+            ;;
+        ghostty_linux)
+            ghostty -e "cd '$path' && $SHELL" &
+            ;;
+        iterm)
+            open -a iTerm "$path"
+            ;;
+        terminal_app)
+            open -a Terminal "$path"
+            ;;
+        gnome_terminal)
+            gnome-terminal --working-directory="$path" &
+            ;;
+        konsole)
+            konsole --workdir "$path" &
+            ;;
+        finder)
+            open "$path"
+            ;;
+        nautilus)
+            nautilus "$path" &
+            ;;
+        dolphin)
+            dolphin "$path" &
+            ;;
+        copy_macos|copy_linux)
+            copy_to_clipboard "$path"
+            ;;
+        *)
+            echo "Unknown application: $cmd" >&2
+            return 1
+            ;;
+    esac
+}
+
+# Interactive menu loop
+# Args: $1 = worktree path
+handle_menu() {
+    local wt_path="$1"
+
+    # Build list of available apps
+    build_available_apps
+
+    # If no apps available, just exit
+    if [[ ${#AVAILABLE_APPS[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    # Show menu and handle input
+    while true; do
+        show_menu
+        read -r choice
+
+        # Handle empty input as exit
+        if [[ -z "$choice" ]]; then
+            break
+        fi
+
+        # Handle exit option
+        if [[ "$choice" == "0" ]]; then
+            break
+        fi
+
+        # Validate numeric input
+        if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
+            echo "Invalid choice. Please enter a number."
+            echo ""
+            continue
+        fi
+
+        # Check if choice is in valid range
+        if ((choice < 1 || choice > ${#AVAILABLE_APPS[@]})); then
+            echo "Invalid choice. Please enter a number between 0 and ${#AVAILABLE_APPS[@]}."
+            echo ""
+            continue
+        fi
+
+        # Get the selected app
+        local selected="${AVAILABLE_APPS[$((choice - 1))]}"
+        local open_cmd="${selected##*:}"
+
+        # Open the app
+        open_in_app "$open_cmd" "$wt_path"
+        break
+    done
+}
+
+# ============================================================================
+# Help (User Story 4)
+# ============================================================================
+
+# Display help information per contracts/cli-interface.md
+show_help() {
+    # Try to show actual worktrees path if in a git repo
+    local worktrees_path="<repo>-worktrees/"
+    if git rev-parse --show-toplevel &>/dev/null; then
+        local repo_root repo_name
+        repo_root=$(git rev-parse --show-toplevel)
+        repo_name=$(basename "$repo_root")
+        worktrees_path="$(dirname "$repo_root")/${repo_name}-worktrees/"
+    fi
+
+    cat <<EOF
+Usage: wt-create [BRANCH]
+
+Creates a git worktree for parallel development.
+
+Arguments:
+  BRANCH    Branch to checkout (optional)
+            If omitted, creates wt/<random-name> branch
+
+Worktrees created at: $worktrees_path
+
+Options:
+  help      Show this help message
+
+Examples:
+  wt-create                    # New worktree with random name
+  wt-create feature/auth       # Worktree for existing branch
+  wt-create my-experiment      # Worktree with new named branch
+EOF
+}
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
+
+main() {
+    local branch_arg="${1:-}"
+
+    # Handle help argument first (before git validation)
+    if [[ "$branch_arg" == "help" || "$branch_arg" == "--help" || "$branch_arg" == "-h" ]]; then
+        show_help
+        exit "$EXIT_SUCCESS"
+    fi
+
+    validate_git_repo
+    get_repo_context
+
+    if [[ -z "$branch_arg" ]]; then
+        # No arguments - create exploratory worktree with random name
+        create_exploratory_worktree
+    else
+        # Branch argument provided - create worktree for that branch
+        create_branch_worktree "$branch_arg"
+    fi
+
+    # Show menu to open in preferred tool
+    handle_menu "$WT_PATH"
+}
+
+main "$@"
