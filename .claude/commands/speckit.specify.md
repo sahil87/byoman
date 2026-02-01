@@ -41,12 +41,34 @@ Given that feature description, do this:
    - Pass `--short-name "your-short-name"` along with the feature description
    - Example: `.specify/scripts/bash/create-new-feature.sh --json --short-name "user-auth" "Add user authentication"`
 
+   **Available flags**:
+   - `--json` - Output in JSON format (non-interactive mode)
+   - `--short-name <name>` - Provide a custom short name (2-4 words) for the spec
+   - `--branch <name>` - Use this branch name instead of auto-generating from spec (useful for Linear integration)
+   - `--no-rename` - Skip branch rename entirely
+
    **IMPORTANT**:
    - You must only ever run this script once per feature
    - The JSON is provided in the terminal as output - always refer to it to get the actual content you're looking for
-   - The JSON output will contain SPEC_NAME and SPEC_FILE paths
+   - The JSON output will contain SPEC_NAME, SPEC_FILE, and branch info (original, current, renamed)
    - The script automatically sets this as the current spec
+   - If on a temporary worktree branch (wt/*), it will be renamed to match the spec name
    - For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot")
+
+   **Branch rename examples**:
+   ```bash
+   # Auto-rename to spec name (default)
+   .specify/scripts/bash/create-new-feature.sh --json --short-name "user-auth" "Add user auth"
+   # Output: branch wt/amsterdam → 260201-xxxx-user-auth
+
+   # Use custom branch name (e.g., from Linear)
+   .specify/scripts/bash/create-new-feature.sh --json --branch "feature/dev-907-byoman" --short-name "user-auth" "Add user auth"
+   # Output: branch wt/amsterdam → feature/dev-907-byoman
+
+   # Skip branch rename
+   .specify/scripts/bash/create-new-feature.sh --json --no-rename --short-name "user-auth" "Add user auth"
+   # Output: branch unchanged
+   ```
 
 3. Load `.specify/templates/spec-template.md` to understand required sections.
 

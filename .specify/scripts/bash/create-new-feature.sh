@@ -55,6 +55,8 @@ generate_unique_prefix() {
 
 JSON_MODE=false
 SHORT_NAME=""
+RENAME_BRANCH=true
+CUSTOM_BRANCH=""
 ARGS=()
 i=1
 while [ $i -le $# ]; do
@@ -76,16 +78,34 @@ while [ $i -le $# ]; do
             fi
             SHORT_NAME="$next_arg"
             ;;
+        --branch)
+            if [ $((i + 1)) -gt $# ]; then
+                echo 'Error: --branch requires a value' >&2
+                exit 1
+            fi
+            i=$((i + 1))
+            next_arg="${!i}"
+            if [[ "$next_arg" == --* ]]; then
+                echo 'Error: --branch requires a value' >&2
+                exit 1
+            fi
+            CUSTOM_BRANCH="$next_arg"
+            ;;
+        --no-rename)
+            RENAME_BRANCH=false
+            ;;
         --number)
             echo "ERROR: --number flag removed. Specs now use date-based naming (YYMMDD-XXXX-slug)." >&2
             exit 1
             ;;
         --help|-h)
-            echo "Usage: $0 [--json] [--short-name <name>] <feature_description>"
+            echo "Usage: $0 [--json] [--short-name <name>] [--branch <name>] [--no-rename] <feature_description>"
             echo ""
             echo "Options:"
             echo "  --json              Output in JSON format"
             echo "  --short-name <name> Provide a custom short name (2-4 words) for the spec"
+            echo "  --branch <name>     Use this branch name instead of auto-generating from spec"
+            echo "  --no-rename         Skip branch rename entirely"
             echo "  --help, -h          Show this help message"
             echo ""
             echo "Spec names use format: {YYMMDD}-{4-char-random}-{slug}"
@@ -93,6 +113,8 @@ while [ $i -le $# ]; do
             echo "Examples:"
             echo "  $0 'Add user authentication system'"
             echo "  $0 'Implement OAuth2 integration' --short-name 'oauth-login'"
+            echo "  $0 --branch 'feature/custom-name' 'Add feature with custom branch'"
+            echo "  $0 --no-rename 'Feature without branch rename'"
             exit 0
             ;;
         *)
@@ -203,8 +225,32 @@ if [ -f "$TEMPLATE" ]; then cp "$TEMPLATE" "$SPEC_FILE"; else touch "$SPEC_FILE"
 # Set as current spec
 set_current_spec "$SPEC_NAME"
 
+# Capture branch info for JSON output
+ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+# Branch rename (if enabled)
+if $RENAME_BRANCH; then
+    RENAME_ARGS="--target $SPEC_NAME"
+    if [ -n "$CUSTOM_BRANCH" ]; then
+        RENAME_ARGS="$RENAME_ARGS --custom-branch $CUSTOM_BRANCH"
+    fi
+    if $JSON_MODE; then
+        RENAME_ARGS="$RENAME_ARGS --json"
+    fi
+    # Run rename-branch.sh, but don't fail spec creation if it fails (FR-009)
+    "$SCRIPT_DIR/rename-branch.sh" $RENAME_ARGS || true
+fi
+
+# Get current branch after potential rename
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+BRANCH_RENAMED=false
+if [ "$ORIGINAL_BRANCH" != "$CURRENT_BRANCH" ]; then
+    BRANCH_RENAMED=true
+fi
+
 if $JSON_MODE; then
-    printf '{"SPEC_NAME":"%s","SPEC_FILE":"%s"}\n' "$SPEC_NAME" "$SPEC_FILE"
+    printf '{"SPEC_NAME":"%s","SPEC_FILE":"%s","branch":{"original":"%s","current":"%s","renamed":%s}}\n' \
+        "$SPEC_NAME" "$SPEC_FILE" "$ORIGINAL_BRANCH" "$CURRENT_BRANCH" "$BRANCH_RENAMED"
 else
     echo "SPEC_NAME: $SPEC_NAME"
     echo "SPEC_FILE: $SPEC_FILE"
