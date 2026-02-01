@@ -122,6 +122,19 @@ validate_git_repo() {
     fi
 }
 
+# Check for uncommitted changes (staged or unstaged)
+has_uncommitted_changes() {
+    ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null
+}
+
+require_clean_worktree() {
+    if has_uncommitted_changes; then
+        error "Uncommitted changes detected" \
+            "All changes must be committed before proceeding" \
+            "Commit your changes first: git commit -am 'message' or use /changes:commit"
+    fi
+}
+
 get_default_branch() {
     local default_branch
 
@@ -600,6 +613,7 @@ main() {
     done
 
     validate_git_repo
+    require_clean_worktree
 
     if [[ -n "$mode" ]]; then
         create_pr_noninteractive "$mode" "$no_summary"
