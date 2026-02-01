@@ -12,108 +12,91 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Purpose
 
-This command chains the complete spec-to-implementation workflow for unattended execution:
-1. **Plan**: Generate research.md, data-model.md, contracts/, quickstart.md
-2. **Tasks**: Generate tasks.md from the plan artifacts
-3. **Implement**: Execute all tasks from tasks.md
+This command orchestrates the complete spec-to-implementation workflow using **subagents** for each phase to prevent context exhaustion:
+
+1. **Plan subagent**: Generate research.md, data-model.md, contracts/, quickstart.md
+2. **Tasks subagent**: Generate tasks.md from the plan artifacts
+3. **Implement subagent**: Execute all tasks from tasks.md
 
 **Intended use**: Run on a worktree without active monitoring. The spec.md should already be written and reviewed before invoking this command.
 
+## Architecture
+
+```
+speckit.build (orchestrator - minimal context)
+    │
+    ├── Validate spec exists
+    │
+    ├── Spawn: speckit.plan subagent
+    │   └── Returns: plan artifacts status
+    │
+    ├── Spawn: speckit.tasks subagent
+    │   └── Returns: tasks.md status
+    │
+    └── Spawn: speckit.implement subagent
+        └── Returns: implementation status
+```
+
+Each subagent runs in its own context, keeping the orchestrator lightweight.
+
 ## Outline
 
-### Phase 0: Setup & Validation
+### Phase 0: Setup & Validation (orchestrator)
 
 1. Run `.specify/scripts/bash/check-prerequisites.sh --json --paths-only` to get paths.
    - If no current spec is set, **STOP** with error: "No spec selected. Run `/speckit.switch` first."
-   - Parse: REPO_ROOT, SPEC, FEATURE_DIR, FEATURE_SPEC, IMPL_PLAN, TASKS
+   - Parse: REPO_ROOT, SPEC, FEATURE_DIR, FEATURE_SPEC
 
 2. Validate spec.md exists at FEATURE_SPEC:
    - If missing, **STOP** with error: "spec.md not found. Run `/speckit.specify` first."
-   - Read spec.md to confirm it has content (not just template)
 
-3. Load constitution from `.specify/memory/constitution.md`
-
-4. Report starting state:
+3. Report starting state:
    ```
-   🔨 SPECKIT BUILD: Starting unattended pipeline
+   🔨 SPECKIT BUILD: Starting pipeline
    Spec: [SPEC name]
    Feature: [FEATURE_DIR]
    ```
 
-### Phase 1: Plan (from speckit.plan)
+### Phase 1: Plan (subagent)
 
-1. Run `.specify/scripts/bash/setup-plan.sh --json` to initialize plan.md template
+**Invoke the Skill tool** with skill `speckit.plan` and pass any relevant user arguments.
 
-2. Read FEATURE_SPEC and plan template
+Wait for completion. Check result:
+- **Success**: Report artifacts generated, continue to Phase 2
+- **Failure**: Report error, **STOP** pipeline
 
-3. Execute plan workflow:
-   - Fill Technical Context (mark unknowns as "NEEDS CLARIFICATION")
-   - Fill Constitution Check section
-   - **Phase 0 (Research)**: Generate research.md resolving all NEEDS CLARIFICATION
-   - **Phase 1 (Design)**: Generate data-model.md, contracts/, quickstart.md
-   - Run `.specify/scripts/bash/update-agent-context.sh claude`
+```
+✓ Plan phase complete
+```
 
-4. **Checkpoint**: Report artifacts generated:
-   ```
-   ✓ Plan phase complete
-   Generated: research.md, data-model.md, contracts/, quickstart.md
-   ```
+### Phase 2: Tasks (subagent)
 
-### Phase 2: Tasks (from speckit.tasks)
+**Invoke the Skill tool** with skill `speckit.tasks` and pass any relevant user arguments.
 
-1. Run `.specify/scripts/bash/check-prerequisites.sh --json` to verify plan artifacts exist
+Wait for completion. Check result:
+- **Success**: Report task count, continue to Phase 3
+- **Failure**: Report error, **STOP** pipeline
 
-2. Load all design documents:
-   - **Required**: plan.md, spec.md
-   - **Optional**: data-model.md, contracts/, research.md, quickstart.md
+```
+✓ Tasks phase complete
+```
 
-3. Generate tasks.md following the task template:
-   - Phase 1: Setup tasks
-   - Phase 2: Foundational tasks
-   - Phase 3+: One phase per user story (priority ordered)
-   - Final Phase: Polish & cross-cutting
+### Phase 3: Implement (subagent)
 
-4. **Checkpoint**: Report task generation:
-   ```
-   ✓ Tasks phase complete
-   Generated: tasks.md
-   Total tasks: [N]
-   User stories covered: [list]
-   ```
+**Invoke the Skill tool** with skill `speckit.implement` and pass any relevant user arguments.
 
-### Phase 3: Implement (from speckit.implement)
+**Note**: The implement phase includes checklist verification. If checklists are incomplete, the subagent will prompt for confirmation before proceeding.
 
-1. **Skip checklist verification** - assume user has already verified the spec before running this command
+Wait for completion. Check result:
+- **Success**: Report implementation status
+- **Partial**: Report completed tasks and failures
+- **Failure**: Report error
 
-2. Load implementation context:
-   - tasks.md, plan.md, data-model.md, contracts/, research.md, quickstart.md
+```
+✓ Implementation phase complete
+```
 
-3. **Project Setup Verification**:
-   - Create/verify ignore files (.gitignore, .dockerignore, etc.) based on tech stack
-   - Follow patterns from plan.md technology choices
-
-4. Parse tasks.md and extract execution plan:
-   - Task phases, dependencies, parallel markers [P]
-
-5. Execute implementation phase-by-phase:
-   - Complete each phase before moving to next
-   - Respect dependencies (sequential vs parallel)
-   - Mark completed tasks as [X] in tasks.md
-   - Report progress after each completed task
-
-6. **Checkpoint after each phase**:
-   ```
-   ✓ Phase [N] complete: [phase name]
-   Tasks completed: [list]
-   ```
-
-7. Handle errors gracefully:
-   - Log errors with context
-   - Continue with parallel tasks if one fails
-   - Halt on sequential task failures
-   - Suggest recovery steps
-
-### Final Report
+### Final Report (orchestrator)
 
 After all phases complete (or on error):
 
@@ -122,15 +105,11 @@ After all phases complete (or on error):
 SPECKIT BUILD: [SUCCESS/PARTIAL/FAILED]
 =====================================
 Spec: [SPEC name]
-Duration: [time]
 
 Phase Results:
-  Plan:      [✓/✗] [artifacts list or error]
-  Tasks:     [✓/✗] [task count or error]
+  Plan:      [✓/✗]
+  Tasks:     [✓/✗]
   Implement: [✓/✗] [completed/total tasks]
-
-Files Modified: [count]
-Tests Status: [passing/failing/skipped]
 
 Next Steps: [if any issues]
 =====================================
@@ -138,9 +117,9 @@ Next Steps: [if any issues]
 
 ## Key Rules
 
-- **No interactive prompts** - designed for unattended execution
+- **Use subagents** - Each phase runs as a separate Skill invocation to preserve context
+- **Orchestrator stays lightweight** - Only validates, spawns, and reports
+- **Sequential phases** - Wait for each phase to complete before starting next
+- **Checklist verification preserved** - The implement subagent handles checklist checks
+- **Stop on critical failures** - If plan or tasks fail, don't attempt subsequent phases
 - Use absolute paths everywhere
-- ERROR on gate failures or unresolved clarifications in plan phase
-- Mark tasks complete in tasks.md as they finish
-- Log progress frequently for later review
-- If any phase fails critically, stop and report clearly

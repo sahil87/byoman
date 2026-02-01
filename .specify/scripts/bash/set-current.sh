@@ -64,8 +64,11 @@ SPECS_DIR="$REPO_ROOT/specs"
 # Find the spec
 FOUND_SPEC=""
 
-# Collect all specs into an array
-mapfile -t all_specs < <(list_available_specs)
+# Collect all specs into an array (POSIX-compatible, no mapfile)
+all_specs=()
+while IFS= read -r line; do
+    [[ -n "$line" ]] && all_specs+=("$line")
+done < <(list_available_specs)
 
 # First, try exact match
 if [[ -d "$SPECS_DIR/$SPEC_ARG" ]]; then
