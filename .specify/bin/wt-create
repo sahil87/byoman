@@ -618,7 +618,7 @@ handle_menu() {
 # Args: $1 = worktree path
 run_worktree_setup() {
     local wt_path="$1"
-    local setup_script="$wt_path/bin/wt-setup"
+    local setup_script="$wt_path/.specify/bin/wt-setup"
 
     # Check if wt-setup exists and is executable
     if [[ -x "$setup_script" ]]; then
