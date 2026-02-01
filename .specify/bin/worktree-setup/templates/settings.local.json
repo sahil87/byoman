@@ -12,7 +12,7 @@
       "Bash(.specify/scripts/bash/update-agent-context.sh:*)",
       "Bash(command -v:*)",
       "Bash(shellcheck:*)",
-      "Bash(./bin/speckit-build:*)",
+      "Bash(./.specify/bin/speckit-build:*)",
       "Bash(.specify/scripts/bash/rename-branch.sh:*)",
       "Bash(.specify/scripts/bash/create-new-feature.sh:*)",
       "Bash(bash:*)"
