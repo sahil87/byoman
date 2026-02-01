@@ -1,0 +1,386 @@
+#!/usr/bin/env bash
+#
+# speckit-build - Execute the full speckit pipeline (plan → tasks → implement)
+#
+# Usage: speckit-build [OPTIONS] [SPEC]
+#        speckit-build help
+#
+# This script orchestrates the complete spec-to-implementation workflow,
+# running each phase as a separate Claude Code invocation for context isolation.
+
+set -euo pipefail
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+readonly EXIT_SUCCESS=0
+readonly EXIT_GENERAL_ERROR=1
+readonly EXIT_NO_SPEC=2
+readonly EXIT_PHASE_FAILED=3
+
+# Colors (respects NO_COLOR)
+if [[ -z "${NO_COLOR:-}" ]]; then
+    readonly C_RESET='\033[0m'
+    readonly C_GREEN='\033[0;32m'
+    readonly C_YELLOW='\033[0;33m'
+    readonly C_RED='\033[0;31m'
+    readonly C_CYAN='\033[0;36m'
+    readonly C_DIM='\033[0;90m'
+else
+    readonly C_RESET=''
+    readonly C_GREEN=''
+    readonly C_YELLOW=''
+    readonly C_RED=''
+    readonly C_CYAN=''
+    readonly C_DIM=''
+fi
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+log_info() { echo -e "${C_CYAN}▸${C_RESET} $1"; }
+log_success() { echo -e "${C_GREEN}✓${C_RESET} $1"; }
+log_skip() { echo -e "${C_YELLOW}⏭${C_RESET} $1"; }
+log_error() { echo -e "${C_RED}✗${C_RESET} $1" >&2; }
+log_phase() { echo -e "\n${C_CYAN}═══${C_RESET} $1 ${C_CYAN}═══${C_RESET}"; }
+
+# Print error in what/why/fix format and exit
+error() {
+    local what="$1"
+    local why="$2"
+    local fix="${3:-}"
+
+    echo -e "\n${C_RED}Error:${C_RESET} $what" >&2
+    echo -e "  ${C_DIM}Why:${C_RESET} $why" >&2
+    if [[ -n "$fix" ]]; then
+        echo -e "  ${C_DIM}Fix:${C_RESET} $fix" >&2
+    fi
+    exit "$EXIT_GENERAL_ERROR"
+}
+
+# ============================================================================
+# Path Resolution
+# ============================================================================
+
+# Get repository root
+get_repo_root() {
+    if git rev-parse --show-toplevel >/dev/null 2>&1; then
+        git rev-parse --show-toplevel
+        return
+    fi
+
+    local dir="$(pwd)"
+    while [[ "$dir" != "/" ]]; do
+        if [[ -d "$dir/.specify" ]]; then
+            echo "$dir"
+            return
+        fi
+        dir="$(dirname "$dir")"
+    done
+
+    error "Not in a speckit repository" \
+        "Could not find .specify directory or git root" \
+        "Run from within a speckit-enabled repository"
+}
+
+# Get current spec from .specify/current
+get_current_spec() {
+    local repo_root="$1"
+    local current_file="$repo_root/.specify/current"
+
+    if [[ -f "$current_file" ]]; then
+        cat "$current_file"
+    fi
+}
+
+# Set current spec
+set_current_spec() {
+    local repo_root="$1"
+    local spec="$2"
+    echo "$spec" > "$repo_root/.specify/current"
+}
+
+# ============================================================================
+# Phase Detection
+# ============================================================================
+
+# Check if plan phase is complete
+# Returns 0 (true) if complete, 1 (false) if incomplete
+is_plan_complete() {
+    local feature_dir="$1"
+    local plan_file="$feature_dir/plan.md"
+
+    # Primary check: plan.md must exist
+    if [[ ! -f "$plan_file" ]]; then
+        return 1
+    fi
+
+    # Secondary checks: count existing artifacts
+    local artifact_count=0
+    [[ -f "$feature_dir/research.md" ]] && ((artifact_count++)) || true
+    [[ -f "$feature_dir/data-model.md" ]] && ((artifact_count++)) || true
+    [[ -f "$feature_dir/quickstart.md" ]] && ((artifact_count++)) || true
+    [[ -d "$feature_dir/contracts" && -n "$(ls -A "$feature_dir/contracts" 2>/dev/null)" ]] && ((artifact_count++)) || true
+
+    # Plan complete if primary exists AND at least 2 secondary artifacts
+    [[ $artifact_count -ge 2 ]]
+}
+
+# Check if tasks phase is complete
+# Returns 0 (true) if complete, 1 (false) if incomplete
+is_tasks_complete() {
+    local feature_dir="$1"
+    local tasks_file="$feature_dir/tasks.md"
+
+    # Tasks file must exist
+    if [[ ! -f "$tasks_file" ]]; then
+        return 1
+    fi
+
+    # Must contain at least one task (has "## Task" or "- [ ] T" pattern)
+    grep -qE '(## Task|- \[ \] T[0-9])' "$tasks_file" 2>/dev/null
+}
+
+# ============================================================================
+# Phase Execution
+# ============================================================================
+
+# Run a speckit phase via Claude Code
+# Args: $1 = skill name, $2 = phase description
+run_phase() {
+    local skill="$1"
+    local description="$2"
+
+    log_phase "$description"
+
+    if ! claude "/$skill"; then
+        log_error "$description failed"
+        return 1
+    fi
+
+    log_success "$description complete"
+}
+
+# ============================================================================
+# Help
+# ============================================================================
+
+show_help() {
+    cat <<'EOF'
+Usage: speckit-build [OPTIONS] [SPEC]
+
+Execute the full speckit pipeline (plan → tasks → implement).
+
+Each phase runs as a separate Claude Code invocation, providing context
+isolation and preventing the "stops after first phase" problem.
+
+Arguments:
+  SPEC        Spec to build (optional, uses current spec if omitted)
+
+Options:
+  --force     Re-run all phases regardless of existing artifacts
+  --dry-run   Show what would be executed without running
+  help        Show this help message
+
+Phase Detection:
+  Plan:   Complete if plan.md exists AND ≥2 of (research.md, data-model.md,
+          quickstart.md, contracts/) exist
+  Tasks:  Complete if tasks.md exists and contains task definitions
+
+Examples:
+  speckit-build                    # Build current spec
+  speckit-build my-feature         # Build specific spec
+  speckit-build --force            # Re-run all phases
+  speckit-build --dry-run          # Preview execution plan
+EOF
+}
+
+# ============================================================================
+# Main
+# ============================================================================
+
+main() {
+    local force=false
+    local dry_run=false
+    local spec_arg=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            help|--help|-h)
+                show_help
+                exit "$EXIT_SUCCESS"
+                ;;
+            --force|-f)
+                force=true
+                shift
+                ;;
+            --dry-run|-n)
+                dry_run=true
+                shift
+                ;;
+            -*)
+                error "Unknown option: $1" \
+                    "This option is not recognized" \
+                    "Run 'speckit-build help' for usage"
+                ;;
+            *)
+                spec_arg="$1"
+                shift
+                ;;
+        esac
+    done
+
+    # Get repository context
+    local repo_root
+    repo_root=$(get_repo_root)
+
+    # Handle spec selection
+    local current_spec
+    if [[ -n "$spec_arg" ]]; then
+        # Verify spec exists
+        if [[ ! -d "$repo_root/specs/$spec_arg" ]]; then
+            error "Spec not found: $spec_arg" \
+                "Directory $repo_root/specs/$spec_arg does not exist" \
+                "Create the spec with '/speckit.specify' or check the name"
+        fi
+        set_current_spec "$repo_root" "$spec_arg"
+        current_spec="$spec_arg"
+    else
+        current_spec=$(get_current_spec "$repo_root")
+        if [[ -z "$current_spec" ]]; then
+            error "No spec selected" \
+                "No current spec is set and none was provided" \
+                "Run 'speckit-build <spec>' or '/speckit.switch' first"
+        fi
+    fi
+
+    local feature_dir="$repo_root/specs/$current_spec"
+    local spec_file="$feature_dir/spec.md"
+
+    # Verify spec.md exists
+    if [[ ! -f "$spec_file" ]]; then
+        error "spec.md not found" \
+            "File $spec_file does not exist" \
+            "Run '/speckit.specify' first to create the specification"
+    fi
+
+    # Detect phase status
+    local plan_complete=false
+    local tasks_complete=false
+
+    if is_plan_complete "$feature_dir"; then
+        plan_complete=true
+    fi
+
+    if is_tasks_complete "$feature_dir"; then
+        tasks_complete=true
+    fi
+
+    # Report starting state
+    echo ""
+    echo -e "${C_CYAN}╔═══════════════════════════════════════════════════════════╗${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}  SPECKIT BUILD                                            ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}╚═══════════════════════════════════════════════════════════╝${C_RESET}"
+    echo ""
+    log_info "Spec: $current_spec"
+    log_info "Path: $feature_dir"
+    echo ""
+    echo "Phase Status:"
+    if $plan_complete; then
+        echo -e "  Plan:   ${C_GREEN}✓ complete${C_RESET}"
+    else
+        echo -e "  Plan:   ${C_YELLOW}○ pending${C_RESET}"
+    fi
+    if $tasks_complete; then
+        echo -e "  Tasks:  ${C_GREEN}✓ complete${C_RESET}"
+    else
+        echo -e "  Tasks:  ${C_YELLOW}○ pending${C_RESET}"
+    fi
+
+    if $force; then
+        echo ""
+        echo -e "${C_YELLOW}⚠ Force mode: Re-running all phases${C_RESET}"
+        plan_complete=false
+        tasks_complete=false
+    fi
+
+    # Determine execution plan
+    local phases_to_run=()
+    if ! $plan_complete; then
+        phases_to_run+=("plan")
+    fi
+    if ! $tasks_complete; then
+        phases_to_run+=("tasks")
+    fi
+    phases_to_run+=("implement")
+
+    echo ""
+    log_info "Phases to run: ${phases_to_run[*]}"
+
+    # Dry run: just show what would happen
+    if $dry_run; then
+        echo ""
+        echo "Dry run - would execute:"
+        for phase in "${phases_to_run[@]}"; do
+            echo "  • claude /speckit.$phase"
+        done
+        exit "$EXIT_SUCCESS"
+    fi
+
+    # Execute phases
+    local failed_phase=""
+
+    # Phase 1: Plan
+    if [[ " ${phases_to_run[*]} " =~ " plan " ]]; then
+        if ! run_phase "speckit.plan" "Phase 1: Planning"; then
+            failed_phase="plan"
+        fi
+    else
+        log_phase "Phase 1: Planning"
+        log_skip "Plan phase: SKIPPED (artifacts already exist)"
+    fi
+
+    # Phase 2: Tasks (only if plan succeeded)
+    if [[ -z "$failed_phase" ]]; then
+        if [[ " ${phases_to_run[*]} " =~ " tasks " ]]; then
+            if ! run_phase "speckit.tasks" "Phase 2: Task Generation"; then
+                failed_phase="tasks"
+            fi
+        else
+            log_phase "Phase 2: Task Generation"
+            log_skip "Tasks phase: SKIPPED (tasks.md already exists)"
+        fi
+    fi
+
+    # Phase 3: Implement (only if tasks succeeded)
+    if [[ -z "$failed_phase" ]]; then
+        if ! run_phase "speckit.implement" "Phase 3: Implementation"; then
+            failed_phase="implement"
+        fi
+    fi
+
+    # Final report
+    echo ""
+    echo -e "${C_CYAN}═══════════════════════════════════════════════════════════${C_RESET}"
+    if [[ -z "$failed_phase" ]]; then
+        echo -e "${C_GREEN}SPECKIT BUILD: SUCCESS${C_RESET}"
+        echo -e "${C_CYAN}═══════════════════════════════════════════════════════════${C_RESET}"
+        echo "Spec: $current_spec"
+        echo ""
+        echo "All phases completed successfully."
+        exit "$EXIT_SUCCESS"
+    else
+        echo -e "${C_RED}SPECKIT BUILD: FAILED${C_RESET}"
+        echo -e "${C_CYAN}═══════════════════════════════════════════════════════════${C_RESET}"
+        echo "Spec: $current_spec"
+        echo "Failed at: $failed_phase"
+        echo ""
+        echo "Fix the issues and re-run: speckit-build"
+        exit "$EXIT_PHASE_FAILED"
+    fi
+}
+
+main "$@"

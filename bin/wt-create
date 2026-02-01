@@ -611,6 +611,30 @@ handle_menu() {
 }
 
 # ============================================================================
+# Worktree Setup
+# ============================================================================
+
+# Prompt user and run wt-setup in the newly created worktree if it exists
+# Args: $1 = worktree path
+run_worktree_setup() {
+    local wt_path="$1"
+    local setup_script="$wt_path/bin/wt-setup"
+
+    # Check if wt-setup exists and is executable
+    if [[ -x "$setup_script" ]]; then
+        echo ""
+        printf "Initialize worktree? [Y/n] "
+        read -r answer
+
+        # Default to yes if empty, accept y/Y/yes/Yes
+        if [[ -z "$answer" || "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
+            echo "Running worktree setup..."
+            (cd "$wt_path" && "$setup_script")
+        fi
+    fi
+}
+
+# ============================================================================
 # Help (User Story 4)
 # ============================================================================
 
@@ -669,6 +693,9 @@ main() {
         # Branch argument provided - create worktree for that branch
         create_branch_worktree "$branch_arg"
     fi
+
+    # Run setup tasks in the new worktree
+    run_worktree_setup "$WT_PATH"
 
     # Show menu to open in preferred tool
     handle_menu "$WT_PATH"
