@@ -1,3 +1,19 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+go.work
+go.work.sum
+
+# Go binaries
+byosm
+byoman
+
 # Speckit local state
 .specify/current
 
