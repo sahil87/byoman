@@ -1,0 +1,749 @@
+#!/usr/bin/env bash
+#
+# wt-delete - Git worktree deletion with cleanup
+#
+# Usage: wt-delete [NAME] [OPTIONS]
+#        wt-delete help
+#
+# Deletes git worktrees with optional branch cleanup
+
+set -euo pipefail
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+# Exit codes per contracts/cli-interface.md
+readonly EXIT_SUCCESS=0
+readonly EXIT_GENERAL_ERROR=1
+readonly EXIT_INVALID_ARGS=2
+# shellcheck disable=SC2034 # Reserved per CLI contract
+readonly EXIT_GIT_ERROR=3
+
+# Colors (disabled if NO_COLOR is set)
+if [[ -z "${NO_COLOR:-}" ]]; then
+    readonly RED=$'\033[0;31m'
+    readonly YELLOW=$'\033[0;33m'
+    readonly GREEN=$'\033[0;32m'
+    readonly BOLD=$'\033[1m'
+    readonly RESET=$'\033[0m'
+else
+    readonly RED=''
+    readonly YELLOW=''
+    readonly GREEN=''
+    readonly BOLD=''
+    readonly RESET=''
+fi
+
+# ============================================================================
+# Error Handling (Constitution III compliant - what/why/fix format)
+# ============================================================================
+
+# Print error message in what/why/fix format and exit
+# Usage: error <what> <why> [fix]
+error() {
+    local what="$1"
+    local why="$2"
+    local fix="${3:-}"
+
+    echo "${RED}Error:${RESET} $what" >&2
+    echo "  ${BOLD}Why:${RESET} $why" >&2
+    if [[ -n "$fix" ]]; then
+        echo "  ${BOLD}Fix:${RESET} $fix" >&2
+    fi
+    exit "$EXIT_GENERAL_ERROR"
+}
+
+# Print error and exit with specific code
+# Usage: error_with_code <code> <what> <why> [fix]
+error_with_code() {
+    local code="$1"
+    local what="$2"
+    local why="$3"
+    local fix="${4:-}"
+
+    echo "${RED}Error:${RESET} $what" >&2
+    echo "  ${BOLD}Why:${RESET} $why" >&2
+    if [[ -n "$fix" ]]; then
+        echo "  ${BOLD}Fix:${RESET} $fix" >&2
+    fi
+    exit "$code"
+}
+
+# ============================================================================
+# Menu Helper (Conductor-style numbered menus)
+# ============================================================================
+
+# Display a numbered menu and get user choice
+# Args: $1 = prompt, $2... = menu options
+# Returns: selected option number via $MENU_CHOICE
+# Option 0 is always "Cancel" and added automatically
+show_menu() {
+    local prompt="$1"
+    shift
+    local options=("$@")
+
+    echo "$prompt"
+    local i=1
+    for opt in "${options[@]}"; do
+        echo "  ${BOLD}$i)${RESET} $opt"
+        ((i++))
+    done
+    echo "  ${BOLD}0)${RESET} Cancel"
+    echo ""
+
+    while true; do
+        printf "Choice: "
+        read -r choice
+
+        # Handle empty input as cancel
+        if [[ -z "$choice" ]]; then
+            MENU_CHOICE=0
+            return 0
+        fi
+
+        # Validate numeric input
+        if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
+            echo "Invalid choice. Please enter a number."
+            continue
+        fi
+
+        # Check if choice is in valid range
+        if ((choice < 0 || choice > ${#options[@]})); then
+            echo "Invalid choice. Please enter a number between 0 and ${#options[@]}."
+            continue
+        fi
+
+        MENU_CHOICE="$choice"
+        return 0
+    done
+}
+
+# ============================================================================
+# Git Repository Detection
+# ============================================================================
+
+# Validate we're in a git repository
+validate_git_repo() {
+    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+        error_with_code "$EXIT_GENERAL_ERROR" \
+            "Not a git repository" \
+            "wt-delete requires a git repository" \
+            "Navigate to a git repository and try again"
+    fi
+}
+
+# Check if we're inside a worktree (not the main repo)
+# Returns: 0 if in worktree, 1 if in main repo
+is_worktree() {
+    local git_dir common_dir
+    git_dir=$(git rev-parse --git-dir 2>/dev/null)
+    common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+
+    # In worktree: git-dir != git-common-dir
+    [[ "$git_dir" != "$common_dir" ]]
+}
+
+# Get the main repository root path
+# Works from both main repo and worktrees
+get_main_repo_root() {
+    local common_dir
+    common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+    # Remove /.git suffix
+    echo "${common_dir%/.git}"
+}
+
+# Get the worktrees directory path (sibling to main repo)
+get_worktrees_dir() {
+    local main_repo
+    main_repo=$(get_main_repo_root)
+    local repo_name
+    repo_name=$(basename "$main_repo")
+    echo "$(dirname "$main_repo")/${repo_name}-worktrees"
+}
+
+# Get current worktree info (name, branch, path)
+# Sets: WT_NAME, WT_BRANCH, WT_PATH
+get_current_worktree_info() {
+    if ! is_worktree; then
+        return 1
+    fi
+
+    WT_PATH=$(git rev-parse --show-toplevel 2>/dev/null)
+    WT_NAME=$(basename "$WT_PATH")
+    WT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+}
+
+# Get the default branch (main or master)
+get_default_branch() {
+    local default_branch
+
+    # Try origin/HEAD first (set by git clone)
+    default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+
+    # Fallback to checking main/master existence
+    if [[ -z "$default_branch" ]]; then
+        if git show-ref --verify --quiet refs/heads/main 2>/dev/null; then
+            default_branch="main"
+        elif git show-ref --verify --quiet refs/heads/master 2>/dev/null; then
+            default_branch="master"
+        else
+            default_branch="main"
+        fi
+    fi
+
+    echo "$default_branch"
+}
+
+# ============================================================================
+# Change Detection
+# ============================================================================
+
+# Check for uncommitted changes (staged or unstaged)
+has_uncommitted_changes() {
+    ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null
+}
+
+# Check for untracked files
+has_untracked_files() {
+    [[ -n $(git ls-files --others --exclude-standard 2>/dev/null) ]]
+}
+
+# Check if branch has unpushed commits
+# Args: $1 = branch name
+has_unpushed_commits() {
+    local branch="$1"
+    local upstream
+
+    # Check if upstream exists
+    upstream=$(git rev-parse --abbrev-ref "${branch}@{upstream}" 2>/dev/null) || return 1
+
+    # Check for commits not on upstream
+    [[ -n $(git log "${upstream}..${branch}" --oneline 2>/dev/null) ]]
+}
+
+# Get count of unpushed commits
+# Args: $1 = branch name
+get_unpushed_count() {
+    local branch="$1"
+    local upstream
+
+    upstream=$(git rev-parse --abbrev-ref "${branch}@{upstream}" 2>/dev/null) || echo "0"
+    git rev-list --count "${upstream}..${branch}" 2>/dev/null || echo "0"
+}
+
+# ============================================================================
+# Branch Operations
+# ============================================================================
+
+# Check if branch exists on remote
+branch_on_remote() {
+    local branch="$1"
+    git ls-remote --heads origin "$branch" 2>/dev/null | grep -q "$branch"
+}
+
+# Delete local branch
+# Args: $1 = branch name, $2 = force (optional, "force" to force delete)
+delete_local_branch() {
+    local branch="$1"
+    local force="${2:-}"
+
+    if [[ "$force" == "force" ]]; then
+        git branch -D "$branch" 2>/dev/null
+    else
+        git branch -d "$branch" 2>/dev/null
+    fi
+}
+
+# Delete remote branch
+# Args: $1 = branch name
+delete_remote_branch() {
+    local branch="$1"
+    git push origin --delete "$branch" 2>/dev/null
+}
+
+# ============================================================================
+# Stash Operations
+# ============================================================================
+
+# Stash changes with descriptive message
+# Args: $1 = worktree name
+stash_changes() {
+    local wt_name="$1"
+    local date_str
+    date_str=$(date +%Y-%m-%d)
+
+    if has_untracked_files; then
+        git stash push -u -m "wt-delete: saved from worktree '$wt_name' on $date_str"
+    else
+        git stash push -m "wt-delete: saved from worktree '$wt_name' on $date_str"
+    fi
+}
+
+# ============================================================================
+# Worktree Operations
+# ============================================================================
+
+# List all worktrees
+# Returns: worktree info via stdout (path, branch)
+list_worktrees() {
+    git worktree list --porcelain 2>/dev/null | awk '
+        /^worktree / { path = substr($0, 10) }
+        /^branch / { branch = substr($0, 8); gsub(/refs\/heads\//, "", branch); print path "\t" branch }
+        /^detached/ { print path "\t(detached)" }
+    '
+}
+
+# Get worktree path by name
+# Args: $1 = worktree name
+# Returns: path via stdout, empty if not found
+get_worktree_path_by_name() {
+    local name="$1"
+    local worktrees_dir
+    worktrees_dir=$(get_worktrees_dir)
+
+    local path="$worktrees_dir/$name"
+    if [[ -d "$path" ]]; then
+        echo "$path"
+    fi
+}
+
+# Remove worktree
+# Args: $1 = worktree path, $2 = force (optional)
+remove_worktree() {
+    local wt_path="$1"
+    local force="${2:-}"
+
+    if [[ "$force" == "force" ]]; then
+        git worktree remove --force "$wt_path" 2>/dev/null
+    else
+        git worktree remove "$wt_path" 2>/dev/null
+    fi
+}
+
+# ============================================================================
+# Cross-Platform Helpers
+# ============================================================================
+
+# Detect operating system
+detect_os() {
+    case "$(uname -s)" in
+        Darwin) echo "macos" ;;
+        Linux)  echo "linux" ;;
+        *)      echo "unknown" ;;
+    esac
+}
+
+# ============================================================================
+# Core Deletion Logic
+# ============================================================================
+
+# Handle uncommitted changes
+# Returns: 0 to continue, 1 to abort
+handle_uncommitted_changes() {
+    local wt_name="$1"
+
+    echo ""
+    echo "${YELLOW}Warning:${RESET} Worktree has uncommitted changes"
+    echo ""
+
+    show_menu "What would you like to do?" \
+        "Stash changes and delete" \
+        "Discard changes and delete"
+
+    case "$MENU_CHOICE" in
+        1)
+            echo "Stashing changes..."
+            stash_changes "$wt_name"
+            echo "Changes stashed. You can recover them with 'git stash list'"
+            return 0
+            ;;
+        2)
+            echo "Discarding changes..."
+            return 0
+            ;;
+        0)
+            echo "Cancelled."
+            exit "$EXIT_SUCCESS"
+            ;;
+    esac
+}
+
+# Handle unpushed commits warning
+# Args: $1 = branch name
+# Returns: 0 to continue, 1 to abort
+handle_unpushed_commits() {
+    local branch="$1"
+    local count
+    count=$(get_unpushed_count "$branch")
+
+    echo ""
+    echo "${YELLOW}Warning:${RESET} Branch has $count unpushed commit(s)"
+    echo ""
+    echo "Commits that will be lost:"
+    git log "origin/${branch}..${branch}" --oneline 2>/dev/null | head -5 | sed 's/^/  /'
+    if ((count > 5)); then
+        echo "  ... and $((count - 5)) more"
+    fi
+    echo ""
+
+    show_menu "Continue anyway?" \
+        "Yes, delete (commits will be lost)"
+
+    case "$MENU_CHOICE" in
+        1)
+            return 0
+            ;;
+        0)
+            echo "Cancelled."
+            exit "$EXIT_SUCCESS"
+            ;;
+    esac
+}
+
+# Delete current worktree
+# Args: $1 = keep_branch (optional, "keep" to keep branch)
+delete_current_worktree() {
+    local keep_branch="${1:-}"
+    local force_flag="${2:-}"
+
+    # Get current worktree info
+    if ! get_current_worktree_info; then
+        error "Not in a worktree" \
+            "wt-delete without arguments only works from within a worktree" \
+            "Run from a worktree or specify a worktree name: wt-delete <name>"
+    fi
+
+    local main_repo
+    main_repo=$(get_main_repo_root)
+
+    # Display worktree info
+    echo "Worktree: ${BOLD}$WT_NAME${RESET}"
+    echo "Branch: $WT_BRANCH"
+    echo "Path: $WT_PATH"
+    echo ""
+
+    # Check for uncommitted changes (unless force)
+    if [[ "$force_flag" != "force" ]]; then
+        if has_uncommitted_changes || has_untracked_files; then
+            handle_uncommitted_changes "$WT_NAME"
+        fi
+
+        # Check for unpushed commits
+        if has_unpushed_commits "$WT_BRANCH" 2>/dev/null; then
+            handle_unpushed_commits "$WT_BRANCH"
+        fi
+
+        # Confirmation menu
+        show_menu "Delete this worktree?" \
+            "Delete worktree and branch" \
+            "Delete worktree, keep branch"
+
+        case "$MENU_CHOICE" in
+            1)
+                keep_branch=""
+                ;;
+            2)
+                keep_branch="keep"
+                ;;
+            0)
+                echo "Cancelled."
+                exit "$EXIT_SUCCESS"
+                ;;
+        esac
+    fi
+
+    # Change to main repo before deletion (we can't stay in deleted directory)
+    cd "$main_repo" || error "Cannot change to main repo" \
+        "Failed to cd to $main_repo" \
+        "Check if the main repository still exists"
+
+    # Remove the worktree
+    echo "Removing worktree..."
+    if has_uncommitted_changes 2>/dev/null || has_untracked_files 2>/dev/null; then
+        remove_worktree "$WT_PATH" "force"
+    else
+        remove_worktree "$WT_PATH" || remove_worktree "$WT_PATH" "force"
+    fi
+    echo "Deleted worktree: ${GREEN}$WT_NAME${RESET}"
+
+    # Handle branch deletion
+    if [[ "$keep_branch" != "keep" ]]; then
+        # Delete local branch
+        if delete_local_branch "$WT_BRANCH" "force" 2>/dev/null; then
+            echo "Deleted branch: $WT_BRANCH (local)"
+        fi
+
+        # Ask about remote branch deletion
+        if branch_on_remote "$WT_BRANCH"; then
+            show_menu "Delete remote branch?" \
+                "Yes, delete origin/$WT_BRANCH"
+
+            if [[ "$MENU_CHOICE" == "1" ]]; then
+                if delete_remote_branch "$WT_BRANCH"; then
+                    echo "Deleted branch: $WT_BRANCH (remote)"
+                else
+                    echo "${YELLOW}Note:${RESET} Could not delete remote branch"
+                fi
+            fi
+        fi
+    fi
+
+    echo ""
+    echo "You are no longer in a valid directory."
+    echo "Run: ${BOLD}cd $main_repo${RESET}"
+}
+
+# Delete worktree by name
+# Args: $1 = worktree name
+delete_worktree_by_name() {
+    local name="$1"
+    local keep_branch="${2:-}"
+    local force_flag="${3:-}"
+
+    local wt_path
+    wt_path=$(get_worktree_path_by_name "$name")
+
+    if [[ -z "$wt_path" ]]; then
+        # Show available worktrees
+        echo "${RED}Error:${RESET} Worktree '$name' not found" >&2
+        echo "  ${BOLD}Why:${RESET} No worktree with that name exists" >&2
+        echo "  ${BOLD}Fix:${RESET} Use one of the available worktrees:" >&2
+        echo "" >&2
+        list_worktrees_formatted >&2
+        exit "$EXIT_GENERAL_ERROR"
+    fi
+
+    # Get branch for the worktree
+    local branch
+    branch=$(git worktree list --porcelain | awk -v path="$wt_path" '
+        /^worktree / { current_path = substr($0, 10) }
+        /^branch / && current_path == path {
+            branch = substr($0, 8)
+            gsub(/refs\/heads\//, "", branch)
+            print branch
+        }
+    ')
+
+    echo "Worktree: ${BOLD}$name${RESET}"
+    echo "Branch: $branch"
+    echo "Path: $wt_path"
+    echo ""
+
+    # Confirmation (unless force)
+    if [[ "$force_flag" != "force" ]]; then
+        show_menu "Delete this worktree?" \
+            "Delete worktree and branch" \
+            "Delete worktree, keep branch"
+
+        case "$MENU_CHOICE" in
+            1)
+                keep_branch=""
+                ;;
+            2)
+                keep_branch="keep"
+                ;;
+            0)
+                echo "Cancelled."
+                exit "$EXIT_SUCCESS"
+                ;;
+        esac
+    fi
+
+    # Remove the worktree
+    echo "Removing worktree..."
+    remove_worktree "$wt_path" "force"
+    echo "Deleted worktree: ${GREEN}$name${RESET}"
+
+    # Handle branch deletion
+    if [[ "$keep_branch" != "keep" && -n "$branch" ]]; then
+        if delete_local_branch "$branch" "force" 2>/dev/null; then
+            echo "Deleted branch: $branch (local)"
+        fi
+
+        if branch_on_remote "$branch"; then
+            show_menu "Delete remote branch?" \
+                "Yes, delete origin/$branch"
+
+            if [[ "$MENU_CHOICE" == "1" ]]; then
+                if delete_remote_branch "$branch"; then
+                    echo "Deleted branch: $branch (remote)"
+                fi
+            fi
+        fi
+    fi
+}
+
+# List worktrees in formatted output
+list_worktrees_formatted() {
+    local worktrees_dir main_repo current_path
+    worktrees_dir=$(get_worktrees_dir)
+    main_repo=$(get_main_repo_root)
+    current_path=$(pwd)
+
+    echo "Worktrees:"
+
+    # Parse worktree list
+    while IFS=$'\t' read -r path branch; do
+        local name marker=""
+
+        # Mark current worktree
+        if [[ "$path" == "$current_path" ]]; then
+            marker="* "
+        fi
+
+        # Get display name
+        if [[ "$path" == "$main_repo" ]]; then
+            name="(main)"
+        else
+            name=$(basename "$path")
+        fi
+
+        printf "  %s%-12s %-20s %s\n" "$marker" "$name" "$branch" "$path"
+    done < <(list_worktrees)
+}
+
+# Show worktree selection menu
+select_worktree_menu() {
+    local worktrees_dir
+    worktrees_dir=$(get_worktrees_dir)
+
+    # Get list of worktrees (excluding main repo)
+    local worktrees=()
+    local names=()
+
+    while IFS=$'\t' read -r path branch; do
+        # Skip main repo
+        if [[ "$path" != "$(get_main_repo_root)" ]]; then
+            local name
+            name=$(basename "$path")
+            worktrees+=("$path")
+            names+=("$name ($branch)")
+        fi
+    done < <(list_worktrees)
+
+    if [[ ${#worktrees[@]} -eq 0 ]]; then
+        echo "No worktrees found."
+        exit "$EXIT_SUCCESS"
+    fi
+
+    show_menu "Select worktree to delete:" "${names[@]}"
+
+    if [[ "$MENU_CHOICE" == "0" ]]; then
+        echo "Cancelled."
+        exit "$EXIT_SUCCESS"
+    fi
+
+    local selected_name
+    selected_name=$(basename "${worktrees[$((MENU_CHOICE - 1))]}")
+    delete_worktree_by_name "$selected_name"
+}
+
+# ============================================================================
+# Help
+# ============================================================================
+
+show_help() {
+    cat <<EOF
+Usage: wt-delete [NAME] [OPTIONS]
+       wt-delete help
+
+Deletes a git worktree with optional branch cleanup.
+
+Arguments:
+  NAME        Worktree name to delete (optional)
+              If omitted from within a worktree, deletes current
+              If omitted from main repo, shows selection menu
+
+Options:
+  --force, -f     Skip confirmation prompt
+  --list, -l      List all worktrees and exit
+  --keep-branch, -k   Delete worktree but keep the branch
+  help            Show this help message
+
+Exit Codes:
+  0    Success
+  1    General error
+  2    Invalid arguments
+  3    Git operation failed
+
+Examples:
+  wt-delete              # Delete current worktree (from within worktree)
+  wt-delete london       # Delete worktree named 'london'
+  wt-delete --list       # List all worktrees
+  wt-delete -f           # Delete without confirmation
+  wt-delete -k           # Delete worktree but keep branch
+EOF
+}
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
+
+main() {
+    local name_arg=""
+    local force_flag=""
+    local keep_branch=""
+    local list_flag=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            help|--help|-h)
+                show_help
+                exit "$EXIT_SUCCESS"
+                ;;
+            --force|-f)
+                force_flag="force"
+                shift
+                ;;
+            --list|-l)
+                list_flag="true"
+                shift
+                ;;
+            --keep-branch|-k)
+                keep_branch="keep"
+                shift
+                ;;
+            -*)
+                error_with_code "$EXIT_INVALID_ARGS" \
+                    "Unknown option: $1" \
+                    "This option is not recognized" \
+                    "Run 'wt-delete help' for usage information"
+                ;;
+            *)
+                if [[ -z "$name_arg" ]]; then
+                    name_arg="$1"
+                else
+                    error_with_code "$EXIT_INVALID_ARGS" \
+                        "Too many arguments" \
+                        "Only one worktree name can be specified" \
+                        "Run 'wt-delete help' for usage information"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    validate_git_repo
+
+    # Handle --list
+    if [[ "$list_flag" == "true" ]]; then
+        list_worktrees_formatted
+        exit "$EXIT_SUCCESS"
+    fi
+
+    # Handle deletion
+    if [[ -n "$name_arg" ]]; then
+        # Delete by name
+        delete_worktree_by_name "$name_arg" "$keep_branch" "$force_flag"
+    elif is_worktree; then
+        # Delete current worktree
+        delete_current_worktree "$keep_branch" "$force_flag"
+    else
+        # Show selection menu
+        select_worktree_menu
+    fi
+}
+
+main "$@"
