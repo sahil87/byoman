@@ -101,6 +101,9 @@ get_repo_context() {
             "Navigate to a git repository and try again"
     }
 
+    # Convert to absolute path (git rev-parse can return relative paths)
+    git_common_dir=$(cd "$git_common_dir" && pwd)
+
     # Derive main repo root by stripping /.git suffix
     REPO_ROOT="${git_common_dir%/.git}"
 
@@ -682,7 +685,7 @@ run_worktree_setup() {
         # Default to yes if empty, accept y/Y/yes/Yes
         if [[ -z "$answer" || "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
             echo "Running worktree setup..."
-            (cd "$wt_path" && "$setup_script")
+            (cd "$wt_path" && ./.specify/bin/wt-setup)
         fi
     fi
 }
