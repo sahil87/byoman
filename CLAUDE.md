@@ -20,6 +20,7 @@ Auto-generated from all feature plans. Last updated: 2026-01-31
 - N/A (all session data sourced from byobu/tmux at runtime) (260202-2gdn-byobu-sessions)
 - Go 1.25.6 (per go.mod) + bubbletea, lipgloss, bubbles (Charm ecosystem for TUI) (260202-gtx1-github-actions-cicd)
 - N/A (runtime only - tmux manages session data) (260202-gtx1-github-actions-cicd)
+- POSIX-compliant shell script (bash 3.2+ compatible) + git, byobu (optional), tmux (byobu backend), standard POSIX utilities (260202-4act-byobu-tab-option)
 
 - Go 1.21+ (compiled single binary, no runtime dependencies) + bubbletea (TUI framework), lipgloss (styling), bubbles (input components) (002-speckit-plan-claude)
 
@@ -39,10 +40,9 @@ tests/
 Go 1.21+ (compiled single binary, no runtime dependencies): Follow standard conventions
 
 ## Recent Changes
+- 260202-4act-byobu-tab-option: Added POSIX-compliant shell script (bash 3.2+ compatible) + git, byobu (optional), tmux (byobu backend), standard POSIX utilities
 - 260202-gtx1-github-actions-cicd: Added Go 1.25.6 (per go.mod) + bubbletea, lipgloss, bubbles (Charm ecosystem for TUI)
 - 260202-2gdn-byobu-sessions: Added Go 1.25.6 + bubbletea v1.3.10 (TUI), lipgloss v1.1.0 (styling), bubbles v0.21.0 (components)
-- 260202-mjk2-rename-byoman-executable: Added Go 1.21+ (existing project) + bubbletea (TUI framework), lipgloss (styling), bubbles (input components) - unchanged
-- 260201-2o4w-byoby-session-manager: Added Go 1.21+ (compiled single binary, no runtime dependencies) + bubbletea (TUI framework), lipgloss (styling), bubbles (input components)
 
 
 <!-- MANUAL ADDITIONS START -->
