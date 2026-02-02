@@ -40,3 +40,35 @@ There should be an easy way to:
 ## Who is this for?
 
 If you use remote sessions a lot for development and use byobu (or want to) for long running sessions, this tool is for you.
+
+## Getting Started
+
+### Prerequisites
+
+- Go 1.25.6+ (per `go.mod`)
+- tmux installed (byobu runs on tmux)
+- byobu installed (optional, but recommended for the intended workflow)
+
+### Run from source
+
+```
+go mod download
+go run .
+```
+
+### Build a binary
+
+```
+go build -o byoman .
+./byoman
+```
+
+## Usage
+
+- Use arrow keys (or `j`/`k`) to move through sessions
+- Press `enter` to attach to the selected session
+- Press `n` to create a new session
+- Press `r` to rename the selected session
+- Press `k` to kill the selected session, then `y` to confirm
+- Press `esc` to cancel a rename/new session prompt
+- Press `q` (or `ctrl+c`) to quit
