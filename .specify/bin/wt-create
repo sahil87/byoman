@@ -90,19 +90,25 @@ error_with_code() {
 
 # Get repository root, name, and default branch
 # Sets: REPO_ROOT, REPO_NAME, DEFAULT_BRANCH, WORKTREES_DIR
+# Always uses the MAIN repo root, even when run from a worktree
 get_repo_context() {
-    # Get repository root
-    REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    # Get git common dir (points to main repo's .git, even from worktrees)
+    local git_common_dir
+    git_common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || {
         error_with_code "$EXIT_GENERAL_ERROR" \
             "Not a git repository" \
             "wt-create must be run from within a git repository" \
             "Navigate to a git repository and try again"
     }
 
+    # Derive main repo root by stripping /.git suffix
+    REPO_ROOT="${git_common_dir%/.git}"
+
     # Extract repository name from path
     REPO_NAME=$(basename "$REPO_ROOT")
 
-    # Compute worktrees directory (sibling to repository)
+    # Compute worktrees directory (sibling to main repository)
+    # This ensures all worktrees go to a centralized location
     WORKTREES_DIR="$(dirname "$REPO_ROOT")/${REPO_NAME}-worktrees"
 }
 
@@ -689,9 +695,10 @@ run_worktree_setup() {
 show_help() {
     # Try to show actual worktrees path if in a git repo
     local worktrees_path="<repo>-worktrees/"
-    if git rev-parse --show-toplevel &>/dev/null; then
-        local repo_root repo_name
-        repo_root=$(git rev-parse --show-toplevel)
+    if git rev-parse --git-common-dir &>/dev/null; then
+        local git_common_dir repo_root repo_name
+        git_common_dir=$(git rev-parse --git-common-dir)
+        repo_root="${git_common_dir%/.git}"
         repo_name=$(basename "$repo_root")
         worktrees_path="$(dirname "$repo_root")/${repo_name}-worktrees/"
     fi

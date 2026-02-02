@@ -299,13 +299,14 @@ list_worktrees() {
 # Returns: path via stdout, empty if not found
 get_worktree_path_by_name() {
     local name="$1"
-    local worktrees_dir
-    worktrees_dir=$(get_worktrees_dir)
 
-    local path="$worktrees_dir/$name"
-    if [[ -d "$path" ]]; then
-        echo "$path"
-    fi
+    # Look up actual path from git worktree list
+    while IFS=$'\t' read -r path branch; do
+        if [[ "$(basename "$path")" == "$name" ]]; then
+            echo "$path"
+            return 0
+        fi
+    done < <(list_worktrees)
 }
 
 # Remove worktree
