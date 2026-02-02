@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Client provides methods to interact with tmux.
+// Client provides methods to interact with byobu.
 type Client interface {
 	ListSessions() ([]Session, error)
 	GetPaneCommands() (map[string][]string, error)
@@ -22,56 +22,25 @@ type Client interface {
 // DefaultClient implements Client using os/exec.
 type DefaultClient struct{}
 
-// NewClient creates a new tmux client.
+// NewClient creates a new byobu client.
 func NewClient() *DefaultClient {
 	return &DefaultClient{}
 }
 
-// CheckVersion verifies tmux is installed and version >= 3.0.
+// CheckVersion verifies byobu is installed.
 // Returns nil if OK, error otherwise.
 func CheckVersion() error {
-	binary, err := exec.LookPath("tmux")
+	_, err := exec.LookPath("byobu")
 	if err != nil {
-		return fmt.Errorf("tmux is not installed. Please install tmux 3.0 or later")
+		return fmt.Errorf("byobu is not installed.\n\nInstall with:\n  macOS:   brew install byobu\n  Ubuntu:  sudo apt install byobu\n  Fedora:  sudo dnf install byobu")
 	}
-
-	cmd := exec.Command(binary, "-V")
-	output, err := cmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to get tmux version: %w", err)
-	}
-
-	// Parse version from "tmux 3.4" or similar
-	version := strings.TrimSpace(string(output))
-	parts := strings.Fields(version)
-	if len(parts) < 2 {
-		return fmt.Errorf("unexpected tmux version format: %s", version)
-	}
-
-	versionStr := parts[1]
-	// Handle versions like "3.4" or "3.4a"
-	versionNum := strings.TrimRight(versionStr, "abcdefghijklmnopqrstuvwxyz")
-	versionParts := strings.Split(versionNum, ".")
-	if len(versionParts) < 1 {
-		return fmt.Errorf("unexpected tmux version format: %s", version)
-	}
-
-	major, err := strconv.Atoi(versionParts[0])
-	if err != nil {
-		return fmt.Errorf("unexpected tmux version format: %s", version)
-	}
-
-	if major < 3 {
-		return fmt.Errorf("tmux version %s is too old. Please upgrade to tmux 3.0 or later", versionStr)
-	}
-
 	return nil
 }
 
-// ListSessions returns all tmux sessions.
+// ListSessions returns all byobu sessions.
 func (c *DefaultClient) ListSessions() ([]Session, error) {
 	format := "#{session_name}\t#{session_id}\t#{session_created}\t#{session_last_attached}\t#{session_attached}\t#{session_windows}"
-	cmd := exec.Command("tmux", "list-sessions", "-F", format)
+	cmd := exec.Command("byobu", "list-sessions", "-F", format)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -83,7 +52,7 @@ func (c *DefaultClient) ListSessions() ([]Session, error) {
 		if strings.Contains(errMsg, "no server running") {
 			return nil, nil // No sessions, not an error
 		}
-		return nil, fmt.Errorf("tmux list-sessions: %s", strings.TrimSpace(errMsg))
+		return nil, fmt.Errorf("byobu list-sessions: %s", strings.TrimSpace(errMsg))
 	}
 
 	output := strings.TrimSpace(stdout.String())
@@ -122,7 +91,7 @@ func (c *DefaultClient) ListSessions() ([]Session, error) {
 // Map key is session name, value is list of unique commands.
 func (c *DefaultClient) GetPaneCommands() (map[string][]string, error) {
 	format := "#{session_name}\t#{pane_current_command}"
-	cmd := exec.Command("tmux", "list-panes", "-a", "-F", format)
+	cmd := exec.Command("byobu", "list-panes", "-a", "-F", format)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -134,7 +103,7 @@ func (c *DefaultClient) GetPaneCommands() (map[string][]string, error) {
 		if strings.Contains(errMsg, "no server running") {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("tmux list-panes: %s", strings.TrimSpace(errMsg))
+		return nil, fmt.Errorf("byobu list-panes: %s", strings.TrimSpace(errMsg))
 	}
 
 	output := strings.TrimSpace(stdout.String())
@@ -166,14 +135,14 @@ func (c *DefaultClient) GetPaneCommands() (map[string][]string, error) {
 	return result, nil
 }
 
-// NewSession creates a new detached tmux session.
+// NewSession creates a new detached byobu session.
 func (c *DefaultClient) NewSession(name string) error {
 	args := []string{"new-session", "-d"}
 	if name != "" {
 		args = append(args, "-s", name)
 	}
 
-	cmd := exec.Command("tmux", args...)
+	cmd := exec.Command("byobu", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -182,7 +151,7 @@ func (c *DefaultClient) NewSession(name string) error {
 		if strings.Contains(errMsg, "duplicate session") {
 			return fmt.Errorf("session '%s' already exists", name)
 		}
-		return fmt.Errorf("tmux new-session: %s", errMsg)
+		return fmt.Errorf("byobu new-session: %s", errMsg)
 	}
 	return nil
 }
@@ -193,7 +162,7 @@ func (c *DefaultClient) RenameSession(oldName, newName string) error {
 		return fmt.Errorf("session name cannot be empty")
 	}
 
-	cmd := exec.Command("tmux", "rename-session", "-t", oldName, newName)
+	cmd := exec.Command("byobu", "rename-session", "-t", oldName, newName)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -205,14 +174,14 @@ func (c *DefaultClient) RenameSession(oldName, newName string) error {
 		if strings.Contains(errMsg, "can't find session") || strings.Contains(errMsg, "session not found") {
 			return fmt.Errorf("session '%s' not found", oldName)
 		}
-		return fmt.Errorf("tmux rename-session: %s", errMsg)
+		return fmt.Errorf("byobu rename-session: %s", errMsg)
 	}
 	return nil
 }
 
 // KillSession terminates a session.
 func (c *DefaultClient) KillSession(name string) error {
-	cmd := exec.Command("tmux", "kill-session", "-t", name)
+	cmd := exec.Command("byobu", "kill-session", "-t", name)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -221,7 +190,7 @@ func (c *DefaultClient) KillSession(name string) error {
 		if strings.Contains(errMsg, "can't find session") || strings.Contains(errMsg, "session not found") {
 			return fmt.Errorf("session '%s' not found", name)
 		}
-		return fmt.Errorf("tmux kill-session: %s", errMsg)
+		return fmt.Errorf("byobu kill-session: %s", errMsg)
 	}
 	return nil
 }
@@ -229,10 +198,10 @@ func (c *DefaultClient) KillSession(name string) error {
 // AttachSessionArgs returns the command to attach to a session.
 // Caller should use syscall.Exec with these args.
 func (c *DefaultClient) AttachSessionArgs(name string) (binary string, args []string, err error) {
-	binary, err = exec.LookPath("tmux")
+	binary, err = exec.LookPath("byobu")
 	if err != nil {
-		return "", nil, fmt.Errorf("tmux not found: %w", err)
+		return "", nil, fmt.Errorf("byobu not found: %w", err)
 	}
-	args = []string{"tmux", "attach-session", "-t", name}
+	args = []string{"byobu", "attach-session", "-t", name}
 	return binary, args, nil
 }
