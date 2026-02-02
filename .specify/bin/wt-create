@@ -20,6 +20,7 @@ readonly EXIT_GENERAL_ERROR=1
 readonly EXIT_INVALID_ARGS=2
 readonly EXIT_GIT_ERROR=3
 readonly EXIT_RETRY_EXHAUSTED=4
+readonly EXIT_BYOBU_TAB_ERROR=5
 
 # Default retry count for name collisions
 readonly DEFAULT_RETRIES=10
@@ -103,6 +104,24 @@ get_repo_context() {
 
     # Compute worktrees directory (sibling to repository)
     WORKTREES_DIR="$(dirname "$REPO_ROOT")/${REPO_NAME}-worktrees"
+}
+
+# Detect if running inside a byobu session
+is_byobu_session() {
+    if [[ -n "${BYOBU_TTY:-}" || -n "${BYOBU_BACKEND:-}" || -n "${BYOBU_SESSION:-}" ]]; then
+        return 0
+    fi
+
+    if [[ -n "${TMUX:-}" && -n "${BYOBU_CONFIG_DIR:-}" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Derive byobu tab name using repo and worktree name
+get_byobu_tab_name() {
+    echo "${REPO_NAME}-${WT_NAME}"
 }
 
 # Validate we're in a git repository
@@ -281,6 +300,7 @@ create_exploratory_worktree() {
 
     # Return the path for menu handling (will be added in Phase 5)
     echo ""
+    WT_NAME="$name"
     WT_PATH="$wt_path"
 }
 
@@ -356,6 +376,7 @@ create_branch_worktree() {
 
     # Store path for menu handling
     echo ""
+    WT_NAME="$name"
     WT_PATH="$wt_path"
 }
 
@@ -475,6 +496,11 @@ build_available_apps() {
     elif [[ "$os" == "linux" ]] && command -v xclip &>/dev/null; then
         AVAILABLE_APPS+=("Copy path:copy_linux")
     fi
+
+    # Byobu tab option (only within byobu session)
+    if is_byobu_session; then
+        AVAILABLE_APPS+=("Byobu tab:byobu_tab")
+    fi
 }
 
 # Display the menu of available applications
@@ -550,6 +576,22 @@ open_in_app() {
             ;;
         copy_macos|copy_linux)
             copy_to_clipboard "$path"
+            ;;
+        byobu_tab)
+            local tab_name
+            tab_name=$(get_byobu_tab_name)
+            if ! command -v byobu &>/dev/null; then
+                error_with_code "$EXIT_BYOBU_TAB_ERROR" \
+                    "Failed to open byobu tab" \
+                    "byobu is not available on this system" \
+                    "Install byobu or run wt-create outside byobu"
+            fi
+            if ! byobu new-window -n "$tab_name" -c "$path"; then
+                error_with_code "$EXIT_BYOBU_TAB_ERROR" \
+                    "Failed to open byobu tab" \
+                    "byobu new-window failed" \
+                    "Verify byobu session is active and retry"
+            fi
             ;;
         *)
             echo "Unknown application: $cmd" >&2
