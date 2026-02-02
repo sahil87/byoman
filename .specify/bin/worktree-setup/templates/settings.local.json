@@ -30,7 +30,9 @@
       "Bash(gh pr view:*)",
       "Bash(goreleaser check:*)",
       "Bash(go build:*)",
-      "Bash(./byoman:*)"
+      "Bash(./byoman:*)",
+      "Bash(todo \"Test the todo capture script\")",
+      "Bash(.specify/bin/todo:*)"
     ]
   }
 }
