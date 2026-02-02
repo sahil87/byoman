@@ -82,7 +82,7 @@ go build -o byoman .
 
 ## Usage
 
-- Use arrow keys (or `j`/`k`) to move through sessions
+- Use arrow keys to move through sessions
 - Press `enter` to attach to the selected session
 - Press `n` to create a new session
 - Press `r` to rename the selected session
