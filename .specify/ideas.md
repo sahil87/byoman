@@ -1,3 +1,6 @@
 - 2026-02-02: In wt-create also give option to open the worktree as a byobu tab (assuming wt-create was called inside a byobu session) along with the other options
 - 2026-02-02: Make the tui more slick - right now it moves too much (moving arrow up down jitters the UI). Take inspiration from opencode's tui.
 - 2026-02-02: Replace the word tmux used in so many places with byobu - make it explicit that this tool is the BYObu MANager
+- 2026-02-02: Centralize worktree storage: always create worktrees in the main repo's worktrees directory (avoid nested sibling worktree folders when running wt-create from inside a worktree).
+- 2026-02-02: Convert ideas to a check list (keep the date also) - so we can keep marking things as done
+- 2026-02-02: For working on a mobile phone, we need a byobu with a lot shorter status bar. Right now the right part of the status bar eats up the whole space.
