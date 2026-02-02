@@ -1,3 +1,3 @@
-- 2026-02-02: In wt-create also give option to open the worktree in a byobu tab, along with the other options
+- 2026-02-02: In wt-create also give option to open the worktree as a byobu tab (assuming wt-create was called inside a byobu session) along with the other options
 - 2026-02-02: Make the tui more slick - right now it moves too much (moving arrow up down jitters the UI). Take inspiration from opencode's tui.
 - 2026-02-02: Replace the word tmux used in so many places with byobu - make it explicit that this tool is the BYObu MANager
