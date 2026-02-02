@@ -14,7 +14,7 @@
 
 ```bash
 # From repository root
-go mod init github.com/yourusername/byosm
+go mod init github.com/yourusername/byoman
 
 # Install dependencies
 go get github.com/charmbracelet/bubbletea
@@ -26,7 +26,7 @@ go get github.com/charmbracelet/lipgloss
 ### 2. Create Directory Structure
 
 ```bash
-mkdir -p cmd/byosm
+mkdir -p cmd/byoman
 mkdir -p internal/tmux
 mkdir -p internal/tui
 mkdir -p internal/app
@@ -38,10 +38,10 @@ mkdir -p tests/integration
 
 ```bash
 # Build
-go build -o byosm ./cmd/byosm
+go build -o byoman ./cmd/byoman
 
 # Run (requires tmux sessions to exist)
-./byosm
+./byoman
 ```
 
 ## Development Workflow
@@ -50,10 +50,10 @@ go build -o byosm ./cmd/byosm
 
 ```bash
 # Development build
-go build -o byosm ./cmd/byosm && ./byosm
+go build -o byoman ./cmd/byoman && ./byoman
 
 # Or use go run
-go run ./cmd/byosm
+go run ./cmd/byoman
 ```
 
 ### Testing
@@ -119,7 +119,7 @@ tmux kill-server  # Kills all sessions
 ### Phase 3: Integration
 
 7. **`internal/app/app.go`** - Wire tmux client to TUI
-8. **`cmd/byosm/main.go`** - Entry point, flag parsing, exec handoff
+8. **`cmd/byoman/main.go`** - Entry point, flag parsing, exec handoff
 
 ## Debugging Tips
 
@@ -137,7 +137,7 @@ tmux list-panes -a -F '#{session_name}\t#{pane_current_command}'
 
 ```bash
 # Enable debug logging
-DEBUG=true go run ./cmd/byosm 2>debug.log
+DEBUG=true go run ./cmd/byoman 2>debug.log
 ```
 
 ### Test Individual Commands
@@ -175,7 +175,7 @@ tmux new-session -d -s test
 
 Wrong binary architecture. Rebuild:
 ```bash
-go build -o byosm ./cmd/byosm
+go build -o byoman ./cmd/byoman
 ```
 
 ### Terminal doesn't restore after crash
