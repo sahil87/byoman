@@ -1,0 +1,10 @@
+#!/bin/bash
+# Quick idea capture - append to .specify/ideas.md
+set -e
+
+if [ $# -eq 0 ]; then
+  echo "Usage: ideas <your idea>" >&2
+  exit 1
+fi
+
+echo "- $(date +%Y-%m-%d): $*" >> "$(git rev-parse --show-toplevel)/.specify/ideas.md"
