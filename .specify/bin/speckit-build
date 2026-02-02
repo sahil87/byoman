@@ -155,7 +155,7 @@ run_phase() {
 
     log_phase "$description"
 
-    if ! claude -p "/$skill"; then
+    if ! claude -p "/$skill" --permission-mode dontAsk; then
         log_error "$description failed"
         return 1
     fi

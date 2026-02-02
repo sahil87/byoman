@@ -19,7 +19,15 @@
       "Bash(.specify/bin/wt-pr:*)",
       "Bash(.specify/bin/wt-merge:*)",
       "Skill(changes.commit)",
-      "Skill(changes.commit:*)"
+      "Skill(changes.commit:*)",
+      "Bash(go build:*)",
+      "Bash(python3:*)",
+      "Bash(yq e:*)",
+      "Bash(go test:*)",
+      "Bash(xargs:*)",
+      "Skill(changes.pr)",
+      "Skill(changes.pr:*)",
+      "Bash(gh pr view:*)"
     ]
   }
 }
