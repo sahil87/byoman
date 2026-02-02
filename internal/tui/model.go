@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"byosm/internal/tmux"
+	"byoman/internal/tmux"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"

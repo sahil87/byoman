@@ -19,7 +19,7 @@
 
 **Purpose**: Project initialization and Go module setup
 
-- [x] T001 Create project directory structure per plan.md (cmd/byosm/, internal/tmux/, internal/tui/, internal/app/, tests/)
+- [x] T001 Create project directory structure per plan.md (cmd/byoman/, internal/tmux/, internal/tui/, internal/app/, tests/)
 - [x] T002 Initialize Go module and install dependencies (bubbletea, bubbles/list, bubbles/textinput, lipgloss)
 - [x] T003 [P] Create .gitignore for Go binaries and build artifacts
 
@@ -45,7 +45,7 @@
 
 **Goal**: Display list of all tmux sessions with metrics (name, created time, last attached, status, window count, running commands)
 
-**Independent Test**: Run `./byosm` and verify all existing tmux sessions are displayed with their metrics. Verify "no sessions" message when none exist.
+**Independent Test**: Run `./byoman` and verify all existing tmux sessions are displayed with their metrics. Verify "no sessions" message when none exist.
 
 ### Implementation for User Story 1
 
@@ -57,7 +57,7 @@
 - [x] T014 [US1] Add tickCmd for 3-second auto-refresh with selection preservation in internal/tui/model.go
 - [x] T015 [US1] Handle "no sessions" empty state in internal/tui/view.go
 - [x] T016 [US1] Handle "no tmux server running" gracefully in internal/tmux/client.go
-- [x] T017 [US1] Create main.go entry point with tea.NewProgram in cmd/byosm/main.go
+- [x] T017 [US1] Create main.go entry point with tea.NewProgram in cmd/byoman/main.go
 - [x] T018 [US1] Wire app together in internal/app/app.go
 
 **Checkpoint**: User Story 1 complete - can view all sessions with metrics and navigate with arrow keys
@@ -75,7 +75,7 @@
 - [x] T019 [US2] Add AttachSession(name) returning exec args in internal/tmux/client.go
 - [x] T020 [US2] Implement Enter key handler to set selectedSession and tea.Quit in internal/tui/update.go
 - [x] T021 [US2] Add quitting state to View() to prevent terminal artifacts in internal/tui/view.go
-- [x] T022 [US2] Implement syscall.Exec handoff after p.Run() returns in cmd/byosm/main.go
+- [x] T022 [US2] Implement syscall.Exec handoff after p.Run() returns in cmd/byoman/main.go
 
 **Checkpoint**: User Stories 1 & 2 complete - can view sessions AND attach to any selected session (MVP complete)
 
@@ -141,8 +141,8 @@
 
 **Purpose**: Edge cases and error handling that span multiple user stories
 
-- [x] T040 [P] Add tmux version check (>=3.0) on startup in cmd/byosm/main.go
-- [x] T041 [P] Add tmux not installed error with clear message in cmd/byosm/main.go
+- [x] T040 [P] Add tmux version check (>=3.0) on startup in cmd/byoman/main.go
+- [x] T041 [P] Add tmux not installed error with clear message in cmd/byoman/main.go
 - [x] T042 Handle special characters in session names display in internal/tui/view.go
 - [x] T043 Add 'q' key handler for clean quit in internal/tui/update.go
 - [x] T044 Add help footer showing keybindings ([n]ew [r]ename [k]ill [q]uit) in internal/tui/view.go

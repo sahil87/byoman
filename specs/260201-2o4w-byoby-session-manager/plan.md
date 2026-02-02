@@ -51,7 +51,7 @@ specs/260201-2o4w-byoby-session-manager/
 
 ```text
 cmd/
-└── byosm/               # Main entry point (byobu session manager)
+└── byoman/              # Main entry point (byobu session manager)
     └── main.go
 
 internal/

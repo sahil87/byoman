@@ -14,6 +14,8 @@ Auto-generated from all feature plans. Last updated: 2026-01-31
 - Bash (POSIX-compliant shell scripts, tested with bash 3.2+ and 5+) + git (for worktree scripts), standard POSIX utilities (260201-gofw-consolidate-bin-specify)
 - N/A (filesystem operations only) (260201-gofw-consolidate-bin-specify)
 - N/A (all session data sourced directly from tmux at runtime) (260201-2o4w-byoby-session-manager)
+- Go 1.21+ (existing project) + bubbletea (TUI framework), lipgloss (styling), bubbles (input components) - unchanged (260202-mjk2-rename-byoman-executable)
+- N/A (session data sourced from tmux at runtime) (260202-mjk2-rename-byoman-executable)
 
 - Go 1.21+ (compiled single binary, no runtime dependencies) + bubbletea (TUI framework), lipgloss (styling), bubbles (input components) (002-speckit-plan-claude)
 
@@ -33,9 +35,9 @@ tests/
 Go 1.21+ (compiled single binary, no runtime dependencies): Follow standard conventions
 
 ## Recent Changes
+- 260202-mjk2-rename-byoman-executable: Added Go 1.21+ (existing project) + bubbletea (TUI framework), lipgloss (styling), bubbles (input components) - unchanged
 - 260201-2o4w-byoby-session-manager: Added Go 1.21+ (compiled single binary, no runtime dependencies) + bubbletea (TUI framework), lipgloss (styling), bubbles (input components)
 - 260201-gofw-consolidate-bin-specify: Added Bash (POSIX-compliant shell scripts, tested with bash 3.2+ and 5+) + git (for worktree scripts), standard POSIX utilities
-- 260201-krgf-speckit-branch-naming: Added Bash (POSIX-compliant, tested with bash 3.2+ and 5+) + git (branch operations, remote checks), standard POSIX utilities
 
 
 <!-- MANUAL ADDITIONS START -->

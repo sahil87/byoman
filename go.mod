@@ -1,4 +1,4 @@
-module byosm
+module byoman
 
 go 1.25.6
 

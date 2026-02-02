@@ -1,14 +1,14 @@
-# CLI Interface Contract: byosm
+# CLI Interface Contract: byoman
 
 **Version**: 1.0.0 | **Date**: 2026-02-01
 
 ## Command
 
 ```bash
-byosm [options]
+byoman [options]
 ```
 
-**Binary name**: `byosm` (byobu session manager)
+**Binary name**: `byoman` (byobu session manager)
 
 ## Options
 

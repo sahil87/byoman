@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"byosm/internal/tmux"
+	"byoman/internal/tmux"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

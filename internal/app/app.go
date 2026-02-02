@@ -1,8 +1,8 @@
 package app
 
 import (
-	"byosm/internal/tmux"
-	"byosm/internal/tui"
+	"byoman/internal/tmux"
+	"byoman/internal/tui"
 	"fmt"
 	"os"
 	"syscall"
