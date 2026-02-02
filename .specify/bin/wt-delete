@@ -93,6 +93,9 @@ show_menu() {
     echo ""
 
     while true; do
+        # Flush any pending input (fixes arrow key escape sequences in buffer)
+        read -t 0.1 -n 10000 discard 2>/dev/null || true
+
         printf "Choice: "
         read -r choice
 
@@ -404,9 +407,12 @@ handle_unpushed_commits() {
 
 # Delete current worktree
 # Args: $1 = keep_branch (optional, "keep" to keep branch)
+#       $2 = force_flag (optional, "force" to skip prompts)
+#       $3 = remote_flag (optional, "remote" to auto-delete remote branch)
 delete_current_worktree() {
     local keep_branch="${1:-}"
     local force_flag="${2:-}"
+    local remote_flag="${3:-}"
 
     # Get current worktree info
     if ! get_current_worktree_info; then
@@ -475,12 +481,20 @@ delete_current_worktree() {
             echo "Deleted branch: $WT_BRANCH (local)"
         fi
 
-        # Ask about remote branch deletion
+        # Handle remote branch deletion
         if branch_on_remote "$WT_BRANCH"; then
-            show_menu "Delete remote branch?" \
-                "Yes, delete origin/$WT_BRANCH"
+            local delete_remote="no"
 
-            if [[ "$MENU_CHOICE" == "1" ]]; then
+            # Auto-delete if --remote or --force flag is set
+            if [[ "$remote_flag" == "remote" || "$force_flag" == "force" ]]; then
+                delete_remote="yes"
+            else
+                show_menu "Delete remote branch?" \
+                    "Yes, delete origin/$WT_BRANCH"
+                [[ "$MENU_CHOICE" == "1" ]] && delete_remote="yes"
+            fi
+
+            if [[ "$delete_remote" == "yes" ]]; then
                 if delete_remote_branch "$WT_BRANCH"; then
                     echo "Deleted branch: $WT_BRANCH (remote)"
                 else
@@ -497,10 +511,14 @@ delete_current_worktree() {
 
 # Delete worktree by name
 # Args: $1 = worktree name
+#       $2 = keep_branch (optional, "keep" to keep branch)
+#       $3 = force_flag (optional, "force" to skip prompts)
+#       $4 = remote_flag (optional, "remote" to auto-delete remote branch)
 delete_worktree_by_name() {
     local name="$1"
     local keep_branch="${2:-}"
     local force_flag="${3:-}"
+    local remote_flag="${4:-}"
 
     local wt_path
     wt_path=$(get_worktree_path_by_name "$name")
@@ -562,13 +580,24 @@ delete_worktree_by_name() {
             echo "Deleted branch: $branch (local)"
         fi
 
+        # Handle remote branch deletion
         if branch_on_remote "$branch"; then
-            show_menu "Delete remote branch?" \
-                "Yes, delete origin/$branch"
+            local delete_remote="no"
 
-            if [[ "$MENU_CHOICE" == "1" ]]; then
+            # Auto-delete if --remote or --force flag is set
+            if [[ "$remote_flag" == "remote" || "$force_flag" == "force" ]]; then
+                delete_remote="yes"
+            else
+                show_menu "Delete remote branch?" \
+                    "Yes, delete origin/$branch"
+                [[ "$MENU_CHOICE" == "1" ]] && delete_remote="yes"
+            fi
+
+            if [[ "$delete_remote" == "yes" ]]; then
                 if delete_remote_branch "$branch"; then
                     echo "Deleted branch: $branch (remote)"
+                else
+                    echo "${YELLOW}Note:${RESET} Could not delete remote branch"
                 fi
             fi
         fi
@@ -605,7 +634,12 @@ list_worktrees_formatted() {
 }
 
 # Show worktree selection menu
+# Args: $1 = keep_branch, $2 = force_flag, $3 = remote_flag
 select_worktree_menu() {
+    local keep_branch="${1:-}"
+    local force_flag="${2:-}"
+    local remote_flag="${3:-}"
+
     local worktrees_dir
     worktrees_dir=$(get_worktrees_dir)
 
@@ -637,7 +671,7 @@ select_worktree_menu() {
 
     local selected_name
     selected_name=$(basename "${worktrees[$((MENU_CHOICE - 1))]}")
-    delete_worktree_by_name "$selected_name"
+    delete_worktree_by_name "$selected_name" "$keep_branch" "$force_flag" "$remote_flag"
 }
 
 # ============================================================================
@@ -657,7 +691,9 @@ Arguments:
               If omitted from main repo, shows selection menu
 
 Options:
-  --force, -f     Skip confirmation prompt
+  --force, -f     Skip confirmation prompts (deletes worktree + branches)
+  --remote, -r    Also delete remote branch without prompting
+  --all, -a       Delete everything without prompts (same as -f -r)
   --list, -l      List all worktrees and exit
   --keep-branch, -k   Delete worktree but keep the branch
   help            Show this help message
@@ -672,7 +708,9 @@ Examples:
   wt-delete              # Delete current worktree (from within worktree)
   wt-delete london       # Delete worktree named 'london'
   wt-delete --list       # List all worktrees
-  wt-delete -f           # Delete without confirmation
+  wt-delete -f london    # Delete without prompts (includes remote)
+  wt-delete -a london    # Same as -f (delete all: worktree + branches)
+  wt-delete -r london    # Prompt for worktree, auto-delete remote
   wt-delete -k           # Delete worktree but keep branch
 EOF
 }
@@ -684,6 +722,7 @@ EOF
 main() {
     local name_arg=""
     local force_flag=""
+    local remote_flag=""
     local keep_branch=""
     local list_flag=""
 
@@ -696,6 +735,15 @@ main() {
                 ;;
             --force|-f)
                 force_flag="force"
+                shift
+                ;;
+            --remote|-r)
+                remote_flag="remote"
+                shift
+                ;;
+            --all|-a)
+                force_flag="force"
+                remote_flag="remote"
                 shift
                 ;;
             --list|-l)
@@ -737,13 +785,13 @@ main() {
     # Handle deletion
     if [[ -n "$name_arg" ]]; then
         # Delete by name
-        delete_worktree_by_name "$name_arg" "$keep_branch" "$force_flag"
+        delete_worktree_by_name "$name_arg" "$keep_branch" "$force_flag" "$remote_flag"
     elif is_worktree; then
         # Delete current worktree
-        delete_current_worktree "$keep_branch" "$force_flag"
+        delete_current_worktree "$keep_branch" "$force_flag" "$remote_flag"
     else
-        # Show selection menu
-        select_worktree_menu
+        # Show selection menu (pass flags for after selection)
+        select_worktree_menu "$keep_branch" "$force_flag" "$remote_flag"
     fi
 }
 
