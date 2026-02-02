@@ -586,6 +586,11 @@ open_in_app() {
                     "byobu is not available on this system" \
                     "Install byobu or run wt-create outside byobu"
             fi
+            # Clean up corrupted byobu cache if .last.tmux is a directory
+            local byobu_cache="${HOME}/.cache/byobu/.last.tmux"
+            if [[ -d "$byobu_cache" ]]; then
+                rm -rf "$byobu_cache" 2>/dev/null || true
+            fi
             if ! byobu new-window -n "$tab_name" -c "$path"; then
                 error_with_code "$EXIT_BYOBU_TAB_ERROR" \
                     "Failed to open byobu tab" \
