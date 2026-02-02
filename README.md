@@ -41,24 +41,41 @@ There should be an easy way to:
 
 If you use remote sessions a lot for development and use byobu (or want to) for long running sessions, this tool is for you.
 
+## Installation
+
+### Quick install (macOS/Linux)
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/sahil87/byoman/main/install.sh | sh
+```
+
+### Go install
+
+```bash
+go install github.com/sahil87/byoman@latest
+```
+
+### Manual download
+
+Download the appropriate binary from the [releases page](https://github.com/sahil87/byoman/releases).
+
 ## Getting Started
 
 ### Prerequisites
 
-- Go 1.25.6+ (per `go.mod`)
 - tmux installed (byobu runs on tmux)
 - byobu installed (optional, but recommended for the intended workflow)
 
 ### Run from source
 
-```
+```bash
 go mod download
 go run .
 ```
 
-### Build a binary
+### Build from source
 
-```
+```bash
 go build -o byoman .
 ./byoman
 ```
