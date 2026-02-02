@@ -27,7 +27,10 @@
       "Bash(xargs:*)",
       "Skill(changes.pr)",
       "Skill(changes.pr:*)",
-      "Bash(gh pr view:*)"
+      "Bash(gh pr view:*)",
+      "Bash(goreleaser check:*)",
+      "Bash(go build:*)",
+      "Bash(./byoman:*)"
     ]
   }
 }
