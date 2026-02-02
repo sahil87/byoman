@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+#
+# release-tag - Create a semver git tag and optionally push it
+#
+# Usage: release-tag [OPTIONS]
+#        release-tag help
+#
+# Defaults to patch bump (vMAJOR.MINOR.PATCH).
+
+set -euo pipefail
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+readonly EXIT_SUCCESS=0
+readonly EXIT_GENERAL_ERROR=1
+readonly EXIT_INVALID_ARGS=2
+
+# Colors (respects NO_COLOR)
+if [[ -z "${NO_COLOR:-}" ]]; then
+    readonly C_RESET='\033[0m'
+    readonly C_GREEN='\033[0;32m'
+    readonly C_YELLOW='\033[0;33m'
+    readonly C_RED='\033[0;31m'
+    readonly C_DIM='\033[0;90m'
+else
+    readonly C_RESET=''
+    readonly C_GREEN=''
+    readonly C_YELLOW=''
+    readonly C_RED=''
+    readonly C_DIM=''
+fi
+
+# ============================================================================
+# Error Handling
+# ============================================================================
+
+error() {
+    local what="$1"
+    local why="$2"
+    local fix="${3:-}"
+
+    echo -e "${C_RED}Error:${C_RESET} $what" >&2
+    echo -e "  ${C_DIM}Why:${C_RESET} $why" >&2
+    if [[ -n "$fix" ]]; then
+        echo -e "  ${C_DIM}Fix:${C_RESET} $fix" >&2
+    fi
+    exit "$EXIT_GENERAL_ERROR"
+}
+
+error_with_code() {
+    local code="$1"
+    local what="$2"
+    local why="$3"
+    local fix="${4:-}"
+
+    echo -e "${C_RED}Error:${C_RESET} $what" >&2
+    echo -e "  ${C_DIM}Why:${C_RESET} $why" >&2
+    if [[ -n "$fix" ]]; then
+        echo -e "  ${C_DIM}Fix:${C_RESET} $fix" >&2
+    fi
+    exit "$code"
+}
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+validate_git_repo() {
+    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+        error "Not a git repository" \
+            "release-tag must be run inside a git repo" \
+            "Navigate to a git repository and try again"
+    fi
+}
+
+validate_has_commit() {
+    if ! git rev-parse --quiet --verify HEAD &>/dev/null; then
+        error "No commits found" \
+            "There is no commit to tag" \
+            "Create a commit before tagging"
+    fi
+}
+
+get_latest_semver_tag() {
+    local tag
+    local latest=""
+
+    while IFS= read -r tag; do
+        if [[ "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            latest="$tag"
+            break
+        fi
+    done < <(git tag --list --sort=-v:refname)
+
+    echo "$latest"
+}
+
+parse_version() {
+    local tag="$1"
+    if [[ "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        VERSION_MAJOR="${BASH_REMATCH[1]}"
+        VERSION_MINOR="${BASH_REMATCH[2]}"
+        VERSION_PATCH="${BASH_REMATCH[3]}"
+        return 0
+    fi
+
+    return 1
+}
+
+bump_version() {
+    local bump="$1"
+    local major="$2"
+    local minor="$3"
+    local patch="$4"
+
+    case "$bump" in
+        patch)
+            patch=$((patch + 1))
+            ;;
+        minor)
+            minor=$((minor + 1))
+            patch=0
+            ;;
+        major)
+            major=$((major + 1))
+            minor=0
+            patch=0
+            ;;
+        *)
+            error_with_code "$EXIT_INVALID_ARGS" \
+                "Unknown bump type: $bump" \
+                "Only patch, minor, or major are supported" \
+                "Use --patch, --minor, or --major"
+            ;;
+    esac
+
+    echo "$major.$minor.$patch"
+}
+
+ensure_tag_not_exists() {
+    local tag="$1"
+    if git rev-parse -q --verify "refs/tags/$tag" &>/dev/null; then
+        error "Tag already exists: $tag" \
+            "A tag with this name is already present" \
+            "Choose a different bump type or delete the existing tag"
+    fi
+}
+
+ensure_origin_remote() {
+    if ! git remote get-url origin &>/dev/null; then
+        error "Remote 'origin' not found" \
+            "Cannot push tag without a remote" \
+            "Add a remote named 'origin' or push manually"
+    fi
+}
+
+# ============================================================================
+# Help
+# ============================================================================
+
+show_help() {
+    cat <<'EOF'
+Usage: release-tag [OPTIONS]
+
+Create a semver git tag (vMAJOR.MINOR.PATCH) and optionally push it.
+
+Options:
+  --patch       Bump patch version (default)
+  --minor       Bump minor version
+  --major       Bump major version
+  --push, -p    Push the created tag to origin
+  help          Show this help message
+
+Examples:
+  release-tag            # v0.0.1 (or patch bump from latest tag)
+  release-tag --minor    # v0.1.0 (or minor bump from latest tag)
+  release-tag --major -p # v1.0.0 and push to origin
+EOF
+}
+
+# ============================================================================
+# Main
+# ============================================================================
+
+main() {
+    local bump="patch"
+    local bump_set=false
+    local push=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            help|--help|-h)
+                show_help
+                exit "$EXIT_SUCCESS"
+                ;;
+            --patch)
+                if $bump_set; then
+                    error_with_code "$EXIT_INVALID_ARGS" \
+                        "Multiple bump options provided" \
+                        "Only one of --patch, --minor, or --major is allowed" \
+                        "Choose a single bump type"
+                fi
+                bump="patch"
+                bump_set=true
+                shift
+                ;;
+            --minor)
+                if $bump_set; then
+                    error_with_code "$EXIT_INVALID_ARGS" \
+                        "Multiple bump options provided" \
+                        "Only one of --patch, --minor, or --major is allowed" \
+                        "Choose a single bump type"
+                fi
+                bump="minor"
+                bump_set=true
+                shift
+                ;;
+            --major)
+                if $bump_set; then
+                    error_with_code "$EXIT_INVALID_ARGS" \
+                        "Multiple bump options provided" \
+                        "Only one of --patch, --minor, or --major is allowed" \
+                        "Choose a single bump type"
+                fi
+                bump="major"
+                bump_set=true
+                shift
+                ;;
+            --push|-p)
+                push=true
+                shift
+                ;;
+            *)
+                error_with_code "$EXIT_INVALID_ARGS" \
+                    "Unknown option: $1" \
+                    "This option is not recognized" \
+                    "Run 'release-tag help' for usage"
+                ;;
+        esac
+    done
+
+    validate_git_repo
+    validate_has_commit
+
+    local latest_tag
+    latest_tag=$(get_latest_semver_tag)
+
+    local major=0
+    local minor=0
+    local patch=0
+
+    if [[ -n "$latest_tag" ]]; then
+        if ! parse_version "$latest_tag"; then
+            error "Latest tag is not valid semver" \
+                "Tag '$latest_tag' does not match vMAJOR.MINOR.PATCH" \
+                "Delete or rename the tag, or create a valid semver tag"
+        fi
+        major="$VERSION_MAJOR"
+        minor="$VERSION_MINOR"
+        patch="$VERSION_PATCH"
+    fi
+
+    local new_version
+    new_version=$(bump_version "$bump" "$major" "$minor" "$patch")
+    local new_tag="v$new_version"
+
+    ensure_tag_not_exists "$new_tag"
+
+    git tag "$new_tag"
+    echo -e "${C_GREEN}✓${C_RESET} Created tag ${C_YELLOW}$new_tag${C_RESET}"
+
+    if $push; then
+        ensure_origin_remote
+        git push origin "$new_tag"
+        echo -e "${C_GREEN}✓${C_RESET} Pushed tag to origin"
+    else
+        echo -e "${C_DIM}Note:${C_RESET} Tag not pushed. Push it with: git push origin $new_tag"
+    fi
+}
+
+main "$@"
