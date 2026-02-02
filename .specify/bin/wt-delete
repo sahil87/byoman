@@ -17,7 +17,6 @@ set -euo pipefail
 readonly EXIT_SUCCESS=0
 readonly EXIT_GENERAL_ERROR=1
 readonly EXIT_INVALID_ARGS=2
-# shellcheck disable=SC2034 # Reserved per CLI contract
 readonly EXIT_GIT_ERROR=3
 
 # Colors (disabled if NO_COLOR is set)
@@ -129,7 +128,7 @@ show_menu() {
 # Validate we're in a git repository
 validate_git_repo() {
     if ! git rev-parse --is-inside-work-tree &>/dev/null; then
-        error_with_code "$EXIT_GENERAL_ERROR" \
+        error_with_code "$EXIT_GIT_ERROR" \
             "Not a git repository" \
             "wt-delete requires a git repository" \
             "Navigate to a git repository and try again"
@@ -227,11 +226,12 @@ has_unpushed_commits() {
 
 # Get count of unpushed commits
 # Args: $1 = branch name
+# Returns: count via stdout (0 if no upstream or error)
 get_unpushed_count() {
     local branch="$1"
     local upstream
 
-    upstream=$(git rev-parse --abbrev-ref "${branch}@{upstream}" 2>/dev/null) || echo "0"
+    upstream=$(git rev-parse --abbrev-ref "${branch}@{upstream}" 2>/dev/null) || { echo "0"; return; }
     git rev-list --count "${upstream}..${branch}" 2>/dev/null || echo "0"
 }
 
@@ -240,9 +240,12 @@ get_unpushed_count() {
 # ============================================================================
 
 # Check if branch exists on remote
+# Args: $1 = branch name
+# Returns: 0 if branch exists on origin, 1 otherwise
 branch_on_remote() {
     local branch="$1"
-    git ls-remote --heads origin "$branch" 2>/dev/null | grep -q "$branch"
+    # Use anchored grep to avoid partial matches (e.g., "test" matching "test-feature")
+    git ls-remote --heads origin "$branch" 2>/dev/null | grep -q "refs/heads/${branch}$"
 }
 
 # Delete local branch
@@ -263,6 +266,39 @@ delete_local_branch() {
 delete_remote_branch() {
     local branch="$1"
     git push origin --delete "$branch" 2>/dev/null
+}
+
+# Handle remote branch deletion with optional prompting
+# Args: $1 = branch name
+#       $2 = force_flag (optional, "force" to auto-delete without prompting)
+#       $3 = remote_flag (optional, "remote" to auto-delete without prompting)
+handle_remote_branch_deletion() {
+    local branch="$1"
+    local force_flag="${2:-}"
+    local remote_flag="${3:-}"
+
+    if ! branch_on_remote "$branch"; then
+        return 0
+    fi
+
+    local delete_remote="no"
+
+    # Auto-delete if --remote or --force flag is set
+    if [[ "$remote_flag" == "remote" || "$force_flag" == "force" ]]; then
+        delete_remote="yes"
+    else
+        show_menu "Delete remote branch?" \
+            "Yes, delete origin/$branch"
+        [[ "$MENU_CHOICE" == "1" ]] && delete_remote="yes"
+    fi
+
+    if [[ "$delete_remote" == "yes" ]]; then
+        if delete_remote_branch "$branch"; then
+            echo "Deleted branch: $branch (remote)"
+        else
+            echo "${YELLOW}Note:${RESET} Could not delete remote branch"
+        fi
+    fi
 }
 
 # ============================================================================
@@ -407,8 +443,9 @@ handle_unpushed_commits() {
 
 # Delete current worktree
 # Args: $1 = keep_branch (optional, "keep" to keep branch)
-#       $2 = force_flag (optional, "force" to skip prompts)
-#       $3 = remote_flag (optional, "remote" to auto-delete remote branch)
+#       $2 = force_flag (optional, "force" to skip all prompts including uncommitted
+#            changes check, unpushed commits warning, and confirmation menu)
+#       $3 = remote_flag (optional, "remote" to auto-delete remote branch without prompting)
 delete_current_worktree() {
     local keep_branch="${1:-}"
     local force_flag="${2:-}"
@@ -465,43 +502,17 @@ delete_current_worktree() {
         "Failed to cd to $main_repo" \
         "Check if the main repository still exists"
 
-    # Remove the worktree
+    # Remove the worktree (always force - we already handled uncommitted changes above)
     echo "Removing worktree..."
-    if has_uncommitted_changes 2>/dev/null || has_untracked_files 2>/dev/null; then
-        remove_worktree "$WT_PATH" "force"
-    else
-        remove_worktree "$WT_PATH" || remove_worktree "$WT_PATH" "force"
-    fi
+    remove_worktree "$WT_PATH" "force"
     echo "Deleted worktree: ${GREEN}$WT_NAME${RESET}"
 
     # Handle branch deletion
     if [[ "$keep_branch" != "keep" ]]; then
-        # Delete local branch
         if delete_local_branch "$WT_BRANCH" "force" 2>/dev/null; then
             echo "Deleted branch: $WT_BRANCH (local)"
         fi
-
-        # Handle remote branch deletion
-        if branch_on_remote "$WT_BRANCH"; then
-            local delete_remote="no"
-
-            # Auto-delete if --remote or --force flag is set
-            if [[ "$remote_flag" == "remote" || "$force_flag" == "force" ]]; then
-                delete_remote="yes"
-            else
-                show_menu "Delete remote branch?" \
-                    "Yes, delete origin/$WT_BRANCH"
-                [[ "$MENU_CHOICE" == "1" ]] && delete_remote="yes"
-            fi
-
-            if [[ "$delete_remote" == "yes" ]]; then
-                if delete_remote_branch "$WT_BRANCH"; then
-                    echo "Deleted branch: $WT_BRANCH (remote)"
-                else
-                    echo "${YELLOW}Note:${RESET} Could not delete remote branch"
-                fi
-            fi
-        fi
+        handle_remote_branch_deletion "$WT_BRANCH" "$force_flag" "$remote_flag"
     fi
 
     echo ""
@@ -510,10 +521,11 @@ delete_current_worktree() {
 }
 
 # Delete worktree by name
+# Note: Does not check for uncommitted changes (unlike delete_current_worktree)
 # Args: $1 = worktree name
 #       $2 = keep_branch (optional, "keep" to keep branch)
-#       $3 = force_flag (optional, "force" to skip prompts)
-#       $4 = remote_flag (optional, "remote" to auto-delete remote branch)
+#       $3 = force_flag (optional, "force" to skip confirmation prompt)
+#       $4 = remote_flag (optional, "remote" to auto-delete remote branch without prompting)
 delete_worktree_by_name() {
     local name="$1"
     local keep_branch="${2:-}"
@@ -570,6 +582,9 @@ delete_worktree_by_name() {
     fi
 
     # Remove the worktree
+    # Note: Always force removal when deleting by name. Unlike delete_current_worktree(),
+    # we can't easily check for uncommitted changes without cd-ing into the worktree,
+    # which would complicate the flow. The confirmation prompt warns users to be careful.
     echo "Removing worktree..."
     remove_worktree "$wt_path" "force"
     echo "Deleted worktree: ${GREEN}$name${RESET}"
@@ -579,28 +594,7 @@ delete_worktree_by_name() {
         if delete_local_branch "$branch" "force" 2>/dev/null; then
             echo "Deleted branch: $branch (local)"
         fi
-
-        # Handle remote branch deletion
-        if branch_on_remote "$branch"; then
-            local delete_remote="no"
-
-            # Auto-delete if --remote or --force flag is set
-            if [[ "$remote_flag" == "remote" || "$force_flag" == "force" ]]; then
-                delete_remote="yes"
-            else
-                show_menu "Delete remote branch?" \
-                    "Yes, delete origin/$branch"
-                [[ "$MENU_CHOICE" == "1" ]] && delete_remote="yes"
-            fi
-
-            if [[ "$delete_remote" == "yes" ]]; then
-                if delete_remote_branch "$branch"; then
-                    echo "Deleted branch: $branch (remote)"
-                else
-                    echo "${YELLOW}Note:${RESET} Could not delete remote branch"
-                fi
-            fi
-        fi
+        handle_remote_branch_deletion "$branch" "$force_flag" "$remote_flag"
     fi
 }
 
