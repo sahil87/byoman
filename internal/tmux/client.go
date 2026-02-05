@@ -17,6 +17,7 @@ type Client interface {
 	RenameSession(oldName, newName string) error
 	KillSession(name string) error
 	AttachSessionArgs(name string) (binary string, args []string, err error)
+	ConfigureMinimalStatusBar(sessionName string) error
 }
 
 // DefaultClient implements Client using os/exec.
@@ -204,4 +205,24 @@ func (c *DefaultClient) AttachSessionArgs(name string) (binary string, args []st
 	}
 	args = []string{"byobu", "attach-session", "-t", name}
 	return binary, args, nil
+}
+
+// ConfigureMinimalStatusBar sets a minimal status bar (date/time only) for a session.
+// This applies per-session configuration without modifying global byobu settings.
+func (c *DefaultClient) ConfigureMinimalStatusBar(sessionName string) error {
+	// Minimal status: just date and time
+	statusRight := "%H:%M %d-%b"
+
+	cmd := exec.Command("byobu", "set-option", "-t", sessionName, "status-right", statusRight)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		errMsg := strings.TrimSpace(stderr.String())
+		if strings.Contains(errMsg, "can't find session") || strings.Contains(errMsg, "session not found") {
+			return fmt.Errorf("session '%s' not found", sessionName)
+		}
+		return fmt.Errorf("byobu set-option: %s", errMsg)
+	}
+	return nil
 }

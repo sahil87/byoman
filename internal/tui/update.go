@@ -168,7 +168,16 @@ func killSession(client tmux.Client, name string) tea.Cmd {
 func newSession(client tmux.Client, name string) tea.Cmd {
 	return func() tea.Msg {
 		err := client.NewSession(name)
-		return sessionActionMsg{err: err}
+		if err != nil {
+			return sessionActionMsg{err: err}
+		}
+		// Configure minimal status bar for the new session
+		// Log warning but don't fail if status bar config fails
+		if sbErr := client.ConfigureMinimalStatusBar(name); sbErr != nil {
+			// Status bar config is best-effort, don't fail the session creation
+			_ = sbErr
+		}
+		return sessionActionMsg{err: nil}
 	}
 }
 
