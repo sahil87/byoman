@@ -166,3 +166,5 @@ Thumbs.db
 
 # Go module cache/vendor
 vendor/
+
+.git-worktrees/
