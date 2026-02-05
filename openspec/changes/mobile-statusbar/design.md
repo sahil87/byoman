@@ -31,11 +31,11 @@ Byobu's status bar is ultimately tmux's status bar. It can be configured:
 
 **Rationale**: Per-session tmux options are isolated, don't require file I/O, and are the standard way to customize individual sessions.
 
-### 2. CPU display format
+### 2. Status display format
 
-**Decision**: Use `#(byobu-status cpu_percent)` or fall back to `#(top -l 1 | grep "CPU" | awk '{print $3}')` for CPU%.
+**Decision**: Use `%H:%M %d-%b` for time and date display (e.g., "14:30 05-Feb").
 
-**Rationale**: `byobu-status` is the idiomatic way to get status info in byobu. Fallback ensures it works even if byobu-status scripts aren't available.
+**Rationale**: Simple tmux format string that works universally without external dependencies. Originally planned CPU% via `byobu-status cpu_percent` but it wasn't working reliably.
 
 ### 3. Implementation location
 
@@ -53,6 +53,5 @@ Byobu's status bar is ultimately tmux's status bar. It can be configured:
 
 | Risk | Mitigation |
 |------|------------|
-| `byobu-status cpu_percent` may not exist on all systems | Test on target platforms; use fallback command if needed |
 | Status bar changes may not persist across detach/reattach | Per-session tmux options do persist; verify in testing |
 | User may want the full status bar back | Future: add toggle in byoman TUI (already in ideas.md) |

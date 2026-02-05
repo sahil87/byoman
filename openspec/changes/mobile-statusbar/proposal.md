@@ -5,14 +5,14 @@ When working on a mobile phone, byobu's status bar is too long and consumes valu
 ## What Changes
 
 - All byobu sessions started via byoman use a minimal status bar (always-on mobile mode)
-- Minimal status bar shows only CPU% (can be extended later)
+- Minimal status bar shows only time and date (can be extended later)
 - New sessions created by byoman automatically get the minimal config
 - (Optional) Allow applying minimal mode to existing byobu sessions if feasible
 
 ## Capabilities
 
 ### New Capabilities
-- `mobile-statusbar`: Minimal byobu status bar (CPU% only) applied to all byoman-created sessions - always on, toggle option to be added later
+- `mobile-statusbar`: Minimal byobu status bar (time/date only) applied to all byoman-created sessions - always on, toggle option to be added later
 
 ### Modified Capabilities
 <!-- None - this is additive functionality -->
