@@ -1,4 +1,4 @@
-package tmux
+package byobu
 
 import (
 	"bytes"

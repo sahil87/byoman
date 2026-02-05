@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"byoman/internal/tmux"
+	"byoman/internal/byobu"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -25,8 +25,8 @@ const refreshInterval = 3 * time.Second
 // Model is the main bubbletea model.
 type Model struct {
 	// Data
-	sessions []tmux.Session
-	client   tmux.Client
+	sessions []byobu.Session
+	client   byobu.Client
 
 	// UI State
 	list         list.Model
@@ -48,7 +48,7 @@ type Model struct {
 
 // sessionItem wraps Session for list.Item interface.
 type sessionItem struct {
-	session tmux.Session
+	session byobu.Session
 }
 
 func (i sessionItem) Title() string       { return i.session.Name }
@@ -56,13 +56,13 @@ func (i sessionItem) Description() string { return "" }
 func (i sessionItem) FilterValue() string { return i.session.Name }
 
 // NewModel creates a new TUI model.
-func NewModel(client tmux.Client) Model {
+func NewModel(client byobu.Client) Model {
 	// Create list with custom delegate
 	delegate := list.NewDefaultDelegate()
 	delegate.ShowDescription = false
 
 	l := list.New([]list.Item{}, delegate, 80, 20)
-	l.Title = "tmux sessions"
+	l.Title = "byobu sessions"
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(false)
 	l.SetShowHelp(false)
@@ -96,7 +96,7 @@ type tickMsg time.Time
 
 // sessionsLoadedMsg contains loaded sessions.
 type sessionsLoadedMsg struct {
-	sessions []tmux.Session
+	sessions []byobu.Session
 	err      error
 }
 
@@ -111,7 +111,7 @@ func tickCmd() tea.Cmd {
 	})
 }
 
-func loadSessions(client tmux.Client) tea.Cmd {
+func loadSessions(client byobu.Client) tea.Cmd {
 	return func() tea.Msg {
 		sessions, err := client.ListSessions()
 		if err != nil {
@@ -130,7 +130,7 @@ func loadSessions(client tmux.Client) tea.Cmd {
 	}
 }
 
-func (m *Model) updateSessionsPreserveSelection(sessions []tmux.Session) {
+func (m *Model) updateSessionsPreserveSelection(sessions []byobu.Session) {
 	m.sessions = sessions
 
 	items := make([]list.Item, len(sessions))
@@ -148,9 +148,9 @@ func (m *Model) updateSessionsPreserveSelection(sessions []tmux.Session) {
 	}
 }
 
-func (m Model) currentSession() (tmux.Session, bool) {
+func (m Model) currentSession() (byobu.Session, bool) {
 	if item, ok := m.list.SelectedItem().(sessionItem); ok {
 		return item.session, true
 	}
-	return tmux.Session{}, false
+	return byobu.Session{}, false
 }

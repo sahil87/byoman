@@ -54,12 +54,12 @@ func (m Model) View() string {
 
 func (m Model) renderList() string {
 	if len(m.sessions) == 0 {
-		return TitleStyle.Render("tmux sessions") + "\n\n" +
-			DimStyle.Render("No tmux sessions. Press 'n' to create one.")
+		return TitleStyle.Render("byobu sessions") + "\n\n" +
+			DimStyle.Render("No byobu sessions. Press 'n' to create one.")
 	}
 
 	var b strings.Builder
-	b.WriteString(TitleStyle.Render("tmux sessions"))
+	b.WriteString(TitleStyle.Render("byobu sessions"))
 	b.WriteString("\n\n")
 
 	for i, session := range m.sessions {

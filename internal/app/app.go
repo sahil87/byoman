@@ -1,7 +1,7 @@
 package app
 
 import (
-	"byoman/internal/tmux"
+	"byoman/internal/byobu"
 	"byoman/internal/tui"
 	"fmt"
 	"os"
@@ -13,12 +13,12 @@ import (
 // Run starts the TUI application.
 // It returns the name of the session to attach to (if any).
 func Run() error {
-	// Check tmux is installed and version is adequate
-	if err := tmux.CheckVersion(); err != nil {
+	// Check byobu is installed
+	if err := byobu.CheckVersion(); err != nil {
 		return err
 	}
 
-	client := tmux.NewClient()
+	client := byobu.NewClient()
 	model := tui.NewModel(client)
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
@@ -36,8 +36,8 @@ func Run() error {
 	return nil
 }
 
-// attachToSession replaces the current process with tmux attach.
-func attachToSession(client *tmux.DefaultClient, name string) error {
+// attachToSession replaces the current process with byobu attach.
+func attachToSession(client *byobu.DefaultClient, name string) error {
 	binary, args, err := client.AttachSessionArgs(name)
 	if err != nil {
 		return err
