@@ -1,9 +1,9 @@
-- [ ] [b7t1] 2026-02-02: In wt-create also give option to open the worktree as a byobu tab (assuming wt-create was called inside a byobu session) along with the other options
+- [x] [b7t1] 2026-02-02: In wt-create also give option to open the worktree as a byobu tab (assuming wt-create was called inside a byobu session) along with the other options
 - [ ] [k3ui] 2026-02-02: Make the tui more slick - right now it moves too much (moving arrow up down jitters the UI). Take inspiration from opencode's tui.
 - [ ] [m4bx] 2026-02-02: Replace the word tmux used in so many places with byobu - make it explicit that this tool is the BYObu MANager
-- [ ] [w2ct] 2026-02-02: Centralize worktree storage: always create worktrees in the main repo's worktrees directory (avoid nested sibling worktree folders when running wt-create from inside a worktree).
+- [x] [w2ct] 2026-02-02: Centralize worktree storage: always create worktrees in the main repo's worktrees directory (avoid nested sibling worktree folders when running wt-create from inside a worktree).
 - [x] [c5kl] 2026-02-02: Convert ideas to a check list (keep the date also) - so we can keep marking things as done. Also add the command changes.idea that calls .specify/bin/idea
-- [ ] [s6mb] 2026-02-02: For working on a mobile phone, we need a byobu with a lot shorter status bar. Right now the right part of the status bar eats up the whole space.
+- [x] [s6mb] 2026-02-02: For working on a mobile phone, we need a byobu with a lot shorter status bar. Right now the right part of the status bar eats up the whole space.
 - [ ] [t7gl] 2026-02-05: Add a toggle option in the byoman main screen to switch between mobile (minimal) and full status bar modes.
 - [ ] [m8se] 2026-02-05: Enable mouse mode by default for byoman-created sessions: `set -g mouse on`
 - [ ] [n9sg] 2026-02-05: Keep a name suggestion pre-filled the new byobu session being created
