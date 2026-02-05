@@ -6,3 +6,4 @@
 - 2026-02-02: For working on a mobile phone, we need a byobu with a lot shorter status bar. Right now the right part of the status bar eats up the whole space.
 - 2026-02-05: Add a toggle option in the byoman main screen to switch between mobile (minimal) and full status bar modes.
 - 2026-02-05: Enable mouse mode by default for byoman-created sessions: `set -g mouse on`
+- 2026-02-05: Keep a name suggestion pre-filled the new byobu session being created
