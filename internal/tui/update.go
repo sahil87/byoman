@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"byoman/internal/tmux"
+	"byoman/internal/byobu"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -158,14 +158,14 @@ func (m Model) handleRenameSession(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func killSession(client tmux.Client, name string) tea.Cmd {
+func killSession(client byobu.Client, name string) tea.Cmd {
 	return func() tea.Msg {
 		err := client.KillSession(name)
 		return sessionActionMsg{err: err}
 	}
 }
 
-func newSession(client tmux.Client, name string) tea.Cmd {
+func newSession(client byobu.Client, name string) tea.Cmd {
 	return func() tea.Msg {
 		err := client.NewSession(name)
 		if err != nil {
@@ -181,7 +181,7 @@ func newSession(client tmux.Client, name string) tea.Cmd {
 	}
 }
 
-func renameSession(client tmux.Client, oldName, newName string) tea.Cmd {
+func renameSession(client byobu.Client, oldName, newName string) tea.Cmd {
 	return func() tea.Msg {
 		err := client.RenameSession(oldName, newName)
 		return sessionActionMsg{err: err}

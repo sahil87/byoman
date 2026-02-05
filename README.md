@@ -15,7 +15,7 @@ A command line program (or shell script) that shows you an interface which lists
 
 ### Session Metrics
 
-The interface should display useful metrics for each session (all sourced directly from tmux):
+The interface should display useful metrics for each session (all sourced directly from byobu):
 * Session name
 * Created time
 * Last attached time
@@ -33,9 +33,9 @@ There should be an easy way to:
 
 ## Design Principles
 
-- Pure tmux wrapper - no config files or hidden state
-- All session data comes directly from tmux
-- Works immediately on any system with tmux installed
+- Pure byobu wrapper - no config files or hidden state
+- All session data comes directly from byobu
+- Works immediately on any system with byobu installed
 
 ## Who is this for?
 
@@ -63,8 +63,8 @@ Download the appropriate binary from the [releases page](https://github.com/sahi
 
 ### Prerequisites
 
-- tmux installed (byobu runs on tmux)
-- byobu installed (optional, but recommended for the intended workflow)
+- byobu installed (which uses tmux as its backend)
+- tmux is automatically installed as a byobu dependency
 
 ### Run from source
 
