@@ -21,6 +21,8 @@ Auto-generated from all feature plans. Last updated: 2026-01-31
 - Go 1.25.6 (per go.mod) + bubbletea, lipgloss, bubbles (Charm ecosystem for TUI) (260202-gtx1-github-actions-cicd)
 - N/A (runtime only - tmux manages session data) (260202-gtx1-github-actions-cicd)
 - POSIX-compliant shell script (bash 3.2+ compatible) + git, byobu (optional), tmux (byobu backend), standard POSIX utilities (260202-4act-byobu-tab-option)
+- Bash (POSIX-compliant, bash 3.2+ compatible) + git (for repo root detection), standard POSIX utilities (date) (260205-k8ui-ideas-checklist-command)
+- Flat file (`.specify/ideas.md`) (260205-k8ui-ideas-checklist-command)
 
 - Go 1.21+ (compiled single binary, no runtime dependencies) + bubbletea (TUI framework), lipgloss (styling), bubbles (input components) (002-speckit-plan-claude)
 
@@ -40,9 +42,9 @@ tests/
 Go 1.21+ (compiled single binary, no runtime dependencies): Follow standard conventions
 
 ## Recent Changes
+- 260205-k8ui-ideas-checklist-command: Added Bash (POSIX-compliant, bash 3.2+ compatible) + git (for repo root detection), standard POSIX utilities (date)
 - 260202-4act-byobu-tab-option: Added POSIX-compliant shell script (bash 3.2+ compatible) + git, byobu (optional), tmux (byobu backend), standard POSIX utilities
 - 260202-gtx1-github-actions-cicd: Added Go 1.25.6 (per go.mod) + bubbletea, lipgloss, bubbles (Charm ecosystem for TUI)
-- 260202-2gdn-byobu-sessions: Added Go 1.25.6 + bubbletea v1.3.10 (TUI), lipgloss v1.1.0 (styling), bubbles v0.21.0 (components)
 
 
 <!-- MANUAL ADDITIONS START -->

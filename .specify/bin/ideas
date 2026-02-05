@@ -7,4 +7,8 @@ if [ $# -eq 0 ]; then
   exit 1
 fi
 
-echo "- $(date +%Y-%m-%d): $*" >> "$(git rev-parse --show-toplevel)/.specify/ideas.md"
+# Generate 4-char alphanumeric ID
+id=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 4)
+
+echo "- [ ] [$id] $(date +%Y-%m-%d): $*" >> "$(git rev-parse --show-toplevel)/.specify/ideas.md"
+echo "Added idea [$id]"
